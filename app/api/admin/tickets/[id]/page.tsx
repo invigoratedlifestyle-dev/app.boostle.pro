@@ -1,113 +1,113 @@
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
-import type { SupportTicket } from "@/types/support";
+"use client";
 
-type PageProps = {
-  params: Promise<{
-    id: string;
-  }>;
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+
+type Ticket = {
+  id: string;
+  ticket_number: number;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: string;
+  priority: string;
+  admin_notes: string | null;
 };
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-AU", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+export default function TicketPage() {
+  const params = useParams();
+  const id = params.id as string;
 
-async function getTicket(id: string): Promise<SupportTicket | null> {
-  const { data, error } = await supabaseAdmin
-    .from("support_tickets")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  if (error && error.code === "PGRST116") {
-    return null;
+  useEffect(() => {
+    fetch(`/api/admin/tickets/get?id=${id}`)
+      .then((res) => res.json())
+      .then((data) => setTicket(data));
+  }, [id]);
+
+  async function save() {
+    if (!ticket) return;
+
+    setSaving(true);
+
+    await fetch("/api/admin/tickets/update", {
+      method: "POST",
+      body: JSON.stringify(ticket),
+    });
+
+    setSaving(false);
+    alert("Saved");
   }
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data as SupportTicket;
-}
-
-export default async function AdminTicketDetailPage({ params }: PageProps) {
-  const authed = await isAdminAuthenticated();
-
-  if (!authed) {
-    redirect("/admin/login");
-  }
-
-  const { id } = await params;
-  const ticket = await getTicket(id);
-
-  if (!ticket) {
-    notFound();
-  }
+  if (!ticket) return <div>Loading...</div>;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-4xl px-6 py-10">
-        <div className="mb-8">
-          <Link
-            href="/admin"
-            className="text-sm text-sky-300 hover:text-sky-200"
-          >
-            ← Back to dashboard
-          </Link>
+    <main className="page-shell">
+      <div className="container">
+        <div className="card" style={{ padding: 28 }}>
+          <h1>Ticket #{ticket.ticket_number}</h1>
 
-          <p className="mt-4 text-sm uppercase tracking-[0.2em] text-sky-300">
-            Ticket #{ticket.ticket_number}
-          </p>
+          <p><strong>{ticket.name}</strong> — {ticket.email}</p>
 
-          <h1 className="mt-2 text-3xl font-semibold">{ticket.subject}</h1>
+          <h3>Message</h3>
+          <p>{ticket.message}</p>
 
-          <p className="mt-2 text-sm text-white/60">
-            Created {formatDate(ticket.created_at)}
-          </p>
-        </div>
+          <div style={{ marginTop: 20 }}>
+            <label>Status</label>
+            <select
+              value={ticket.status}
+              onChange={(e) =>
+                setTicket({ ...ticket, status: e.target.value })
+              }
+              className="input"
+            >
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="waiting_on_customer">Waiting</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
 
-        <div className="grid gap-6">
-          <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-            <h2 className="text-lg font-semibold">Customer</h2>
-            <div className="mt-4 space-y-2 text-sm text-white/80">
-              <p>
-                <span className="text-white/50">Name:</span> {ticket.name}
-              </p>
-              <p>
-                <span className="text-white/50">Email:</span> {ticket.email}
-              </p>
-              <p>
-                <span className="text-white/50">Status:</span> {ticket.status}
-              </p>
-              <p>
-                <span className="text-white/50">Priority:</span> {ticket.priority}
-              </p>
-              <p>
-                <span className="text-white/50">Source:</span> {ticket.source}
-              </p>
-            </div>
-          </section>
+          <div style={{ marginTop: 20 }}>
+            <label>Priority</label>
+            <select
+              value={ticket.priority}
+              onChange={(e) =>
+                setTicket({ ...ticket, priority: e.target.value })
+              }
+              className="input"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
 
-          <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-            <h2 className="text-lg font-semibold">Message</h2>
-            <div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-white/85">
-              {ticket.message}
-            </div>
-          </section>
+          <div style={{ marginTop: 20 }}>
+            <label>Admin Notes</label>
+            <textarea
+              value={ticket.admin_notes || ""}
+              onChange={(e) =>
+                setTicket({ ...ticket, admin_notes: e.target.value })
+              }
+              className="textarea"
+            />
+          </div>
 
-          <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-            <h2 className="text-lg font-semibold">Admin notes</h2>
-            <div className="mt-4 text-sm text-white/60">
-              {ticket.admin_notes?.trim()
-                ? ticket.admin_notes
-                : "No admin notes yet in this MVP."}
-            </div>
-          </section>
+          <div style={{ marginTop: 20 }}>
+            <button
+              className="button button-primary"
+              onClick={save}
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
         </div>
       </div>
     </main>
