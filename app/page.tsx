@@ -16,6 +16,7 @@ type FormDataShape = {
 type SupportApiResponse = {
   ok?: boolean;
   ticketId?: string;
+  ticketNumber?: number;
   error?: string;
 };
 
@@ -101,6 +102,13 @@ export default function HomePage() {
       });
 
       setForm(initialForm);
+
+      if (data.ticketNumber) {
+        router.push(
+          `/success?ticket=${encodeURIComponent(String(data.ticketNumber))}`,
+        );
+        return;
+      }
 
       if (data.ticketId) {
         router.push(`/success?ticket=${encodeURIComponent(data.ticketId)}`);
