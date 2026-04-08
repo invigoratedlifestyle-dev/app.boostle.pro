@@ -36,6 +36,17 @@ function normalisePayload(body: unknown): SupportRequestPayload | null {
   return payload;
 }
 
+function generateTicketId() {
+  const date = new Date();
+
+  const year = date.getFullYear().toString().slice(-2);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  return `BST-${year}${month}${day}-${random}`;
+}
+
 export async function POST(request: Request) {
   try {
     const json = await request.json();
@@ -81,10 +92,31 @@ export async function POST(request: Request) {
       );
     }
 
-    await sendSupportNotificationEmail(payload);
-    await sendSupportAutoReplyEmail(payload);
+    const ticketId = generateTicketId();
 
-    return NextResponse.json({ ok: true });
+    const emailPayload: SupportRequestPayload = {
+      ...payload,
+      subject: `[${ticketId}] ${payload.subject}`,
+      message: `Ticket ID: ${ticketId}\n\n${payload.message}`,
+    };
+
+    console.log("New support ticket created:", {
+      ticketId,
+      name: payload.name,
+      email: payload.email,
+      storeUrl: payload.storeUrl,
+      appName: payload.appName,
+      category: payload.category,
+      subject: payload.subject,
+    });
+
+    await sendSupportNotificationEmail(emailPayload);
+    await sendSupportAutoReplyEmail(emailPayload);
+
+    return NextResponse.json({
+      ok: true,
+      ticketId,
+    });
   } catch (error) {
     console.error("Support form submission failed:", error);
 

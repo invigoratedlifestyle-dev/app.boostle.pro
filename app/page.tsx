@@ -13,6 +13,12 @@ type FormDataShape = {
   message: string;
 };
 
+type SupportApiResponse = {
+  ok?: boolean;
+  ticketId?: string;
+  error?: string;
+};
+
 const initialForm: FormDataShape = {
   name: "",
   email: "",
@@ -83,9 +89,9 @@ export default function HomePage() {
         body: JSON.stringify(form),
       });
 
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as SupportApiResponse;
 
-      if (!response.ok) {
+      if (!response.ok || !data.ok) {
         throw new Error(data.error || "Something went wrong.");
       }
 
@@ -95,6 +101,12 @@ export default function HomePage() {
       });
 
       setForm(initialForm);
+
+      if (data.ticketId) {
+        router.push(`/success?ticket=${encodeURIComponent(data.ticketId)}`);
+        return;
+      }
+
       router.push("/success");
     } catch (error) {
       const message =
