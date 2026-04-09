@@ -48,7 +48,7 @@ export async function bulkUpdateTicketsAction(formData: FormData) {
   const supabase = getSupabaseAdmin();
 
   const { error } = await supabase
-    .from("tickets")
+    .from("support_tickets") // ✅ FIXED
     .update({ status: action })
     .in("id", selectedIds);
 
