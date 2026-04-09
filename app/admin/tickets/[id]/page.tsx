@@ -251,6 +251,7 @@ export default async function AdminTicketDetailPage({
                     border: "1px solid #dbe4f0",
                     background: "#fff",
                     color: "#122033",
+                    font: "inherit",
                   }}
                 >
                   <option value="open">Open</option>
@@ -260,7 +261,17 @@ export default async function AdminTicketDetailPage({
 
                 <button
                   type="submit"
-                  className="button button-primary"
+                  style={{
+                    appearance: "none",
+                    border: 0,
+                    cursor: "pointer",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    fontWeight: 700,
+                    background: "#2563eb",
+                    color: "#ffffff",
+                    font: "inherit",
+                  }}
                 >
                   Update status
                 </button>
@@ -336,22 +347,60 @@ export default async function AdminTicketDetailPage({
             <input type="hidden" name="subject" value={typedTicket.subject} />
             <input type="hidden" name="returnTo" value={returnTo} />
 
-            <div className="field">
-              <label className="label" htmlFor="replyBody">
+            <div
+              style={{
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <label
+                htmlFor="replyBody"
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "#122033",
+                }}
+              >
                 Reply message
               </label>
 
               <textarea
                 id="replyBody"
                 name="replyBody"
-                className="textarea"
                 placeholder="Write your reply to the customer..."
                 required
+                style={{
+                  width: "100%",
+                  minHeight: 150,
+                  resize: "vertical",
+                  border: "1px solid #dbe4f0",
+                  background: "#ffffff",
+                  color: "#122033",
+                  borderRadius: 12,
+                  padding: "14px 14px",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  font: "inherit",
+                  lineHeight: 1.6,
+                }}
               />
             </div>
 
-            <div className="form-actions">
-              <button type="submit" className="button button-primary">
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <button
+                type="submit"
+                style={{
+                  appearance: "none",
+                  border: 0,
+                  cursor: "pointer",
+                  borderRadius: 12,
+                  padding: "14px 18px",
+                  fontWeight: 700,
+                  background: "#2563eb",
+                  color: "#ffffff",
+                  font: "inherit",
+                }}
+              >
                 Send reply
               </button>
             </div>
