@@ -1,19 +1,49 @@
 import { NextResponse } from "next/server";
+import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get("id");
+export async function GET(request: Request) {
+  try {
+    const authed = await isAdminAuthenticated();
 
-  const { data, error } = await supabaseAdmin
-    .from("support_tickets")
-    .select("*")
-    .eq("id", id)
-    .single();
+    if (!authed) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized." },
+        { status: 401 },
+      );
+    }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id")?.trim();
+
+    if (!id) {
+      return NextResponse.json(
+        { ok: false, error: "Missing ticket id." },
+        { status: 400 },
+      );
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("support_tickets")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      ticket: data,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Something went wrong.";
+
+    return NextResponse.json(
+      { ok: false, error: message },
+      { status: 400 },
+    );
   }
-
-  return NextResponse.json(data);
 }

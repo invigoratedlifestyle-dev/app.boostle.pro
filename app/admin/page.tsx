@@ -17,7 +17,9 @@ async function getTickets(): Promise<SupportTicket[]> {
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(error.message);
+  }
 
   return data as SupportTicket[];
 }
@@ -34,14 +36,12 @@ export default async function AdminDashboardPage() {
   return (
     <main className="page-shell">
       <div className="container">
-        <div className="card" style={{ padding: "28px" }}>
+        <div className="card" style={{ padding: 28 }}>
           <div className="eyebrow">Boostle Support</div>
 
           <h1 style={{ marginTop: 12 }}>Admin Dashboard</h1>
 
-          <p className="lead">
-            View and manage incoming support tickets.
-          </p>
+          <p className="lead">View and manage incoming support tickets.</p>
 
           <div style={{ marginTop: 16 }}>
             <form action="/api/admin/logout" method="post">
@@ -51,7 +51,6 @@ export default async function AdminDashboardPage() {
             </form>
           </div>
 
-          {/* Stats */}
           <div
             style={{
               display: "grid",
@@ -67,9 +66,7 @@ export default async function AdminDashboardPage() {
 
             <div className="card" style={{ padding: 16 }}>
               <strong>Open</strong>
-              <div>
-                {tickets.filter((t) => t.status === "open").length}
-              </div>
+              <div>{tickets.filter((t) => t.status === "open").length}</div>
             </div>
 
             <div className="card" style={{ padding: 16 }}>
@@ -81,13 +78,10 @@ export default async function AdminDashboardPage() {
 
             <div className="card" style={{ padding: 16 }}>
               <strong>Urgent</strong>
-              <div>
-                {tickets.filter((t) => t.priority === "urgent").length}
-              </div>
+              <div>{tickets.filter((t) => t.priority === "urgent").length}</div>
             </div>
           </div>
 
-          {/* Table */}
           <div style={{ marginTop: 28 }}>
             {tickets.length === 0 ? (
               <p className="status-text">No tickets yet.</p>
@@ -115,12 +109,14 @@ export default async function AdminDashboardPage() {
 
                       <td>
                         <div>{ticket.name}</div>
-                        <div className="status-text">
-                          {ticket.email}
-                        </div>
+                        <div className="status-text">{ticket.email}</div>
                       </td>
 
-                      <td>{ticket.subject}</td>
+                      <td>
+                        <Link href={`/admin/tickets/${ticket.id}`}>
+                          {ticket.subject}
+                        </Link>
+                      </td>
                       <td>{ticket.status}</td>
                       <td>{ticket.priority}</td>
                       <td>{formatDate(ticket.created_at)}</td>
