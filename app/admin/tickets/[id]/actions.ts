@@ -53,7 +53,6 @@ export async function updateTicketStatusAction(formData: FormData) {
 
 export async function sendTicketReplyAction(formData: FormData) {
   const ticketId = String(formData.get("ticketId") ?? "");
-  const returnTo = String(formData.get("returnTo") ?? "/admin");
   const toEmail = String(formData.get("toEmail") ?? "").trim();
   const subject = String(formData.get("subject") ?? "").trim();
   const replyBody = String(formData.get("replyBody") ?? "").trim();
@@ -115,10 +114,12 @@ export async function sendTicketReplyAction(formData: FormData) {
     });
 
   if (replyInsertError) {
-    console.error("Reply history insert failed:", replyInsertError.message);
+    throw new Error(
+      `Reply email sent, but saving reply history failed: ${replyInsertError.message}`,
+    );
   }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/tickets/${ticketId}`);
-  redirect(returnTo);
+  redirect(`/admin/tickets/${ticketId}?sent=1`);
 }

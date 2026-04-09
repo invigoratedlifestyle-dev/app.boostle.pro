@@ -27,15 +27,6 @@ type TicketReply = {
   created_at: string;
 };
 
-type TimelineItem = {
-  id: string;
-  type: "customer" | "admin";
-  body: string;
-  created_at: string;
-  authorLabel: string;
-  metaLabel: string;
-};
-
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -65,16 +56,24 @@ function getStatusStyle(status: TicketStatus) {
 }
 
 function getStatusLabel(status: TicketStatus) {
-  if (status === "in_progress") return "In progress";
+  if (status === "in_progress") {
+    return "In progress";
+  }
+
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 export default async function AdminTicketDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ sent?: string }>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const replySent = resolvedSearchParams.sent === "1";
+
   const supabase = getSupabaseAdmin();
 
   const { data: ticket, error: ticketError } = await supabase
@@ -97,40 +96,14 @@ export default async function AdminTicketDetailPage({
     .eq("ticket_id", id)
     .order("created_at", { ascending: true });
 
-  const replies =
-    repliesResult.error == null
-      ? ((repliesResult.data ?? []) as TicketReply[])
-      : [];
+  if (repliesResult.error) {
+    throw new Error(repliesResult.error.message);
+  }
+
+  const replies = (repliesResult.data ?? []) as TicketReply[];
 
   const typedTicket = ticket as Ticket;
   const returnTo = `/admin/tickets/${typedTicket.id}`;
-
-  const customerTimelineItem: TimelineItem = {
-    id: `customer-${typedTicket.id}`,
-    type: "customer",
-    body: typedTicket.message,
-    created_at: typedTicket.created_at,
-    authorLabel: `${typedTicket.name} (${typedTicket.email})`,
-    metaLabel: "Customer message",
-  };
-
-  const replyTimelineItems: TimelineItem[] = replies.map((reply) => ({
-    id: reply.id,
-    type: "admin" as const,
-    body: reply.body,
-    created_at: reply.created_at,
-    authorLabel: reply.sent_by,
-    metaLabel: `Reply sent to ${reply.sent_to}`,
-  }));
-
-  const timeline: TimelineItem[] = [
-    customerTimelineItem,
-    ...replyTimelineItems,
-  ].sort(
-    (a, b) =>
-      new Date(a.created_at).getTime() -
-      new Date(b.created_at).getTime(),
-  );
 
   return (
     <main className="page-shell">
@@ -139,6 +112,7 @@ export default async function AdminTicketDetailPage({
           style={{
             display: "flex",
             justifyContent: "space-between",
+            gap: 16,
             flexWrap: "wrap",
           }}
         >
@@ -149,13 +123,21 @@ export default async function AdminTicketDetailPage({
                 letterSpacing: "0.15em",
                 textTransform: "uppercase",
                 color: "#2563eb",
-                margin: 0,
+                margin: "0 0 6px",
               }}
             >
               Boostle Support
             </p>
 
-            <h1 style={{ margin: 0, fontSize: 34 }}>Ticket Detail</h1>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 34,
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Ticket Detail
+            </h1>
           </div>
 
           <Link
@@ -173,7 +155,28 @@ export default async function AdminTicketDetailPage({
           </Link>
         </div>
 
-        <section className="card" style={{ padding: 24 }}>
+        {replySent ? (
+          <div
+            className="card"
+            style={{
+              padding: 16,
+              background: "#ecfdf5",
+              border: "1px solid #a7f3d0",
+              color: "#065f46",
+            }}
+          >
+            Reply sent successfully and added to ticket history.
+          </div>
+        ) : null}
+
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 20,
+          }}
+        >
           <div
             style={{
               display: "flex",
@@ -252,8 +255,12 @@ export default async function AdminTicketDetailPage({
                   name="status"
                   defaultValue={typedTicket.status}
                   style={{
-                    padding: "10px",
-                    borderRadius: 8,
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "1px solid #dbe4f0",
+                    background: "#fff",
+                    color: "#122033",
+                    font: "inherit",
                   }}
                 >
                   <option value="open">Open</option>
@@ -264,12 +271,15 @@ export default async function AdminTicketDetailPage({
                 <button
                   type="submit"
                   style={{
-                    background: "#2563eb",
-                    color: "#fff",
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    border: "none",
+                    appearance: "none",
+                    border: 0,
                     cursor: "pointer",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    fontWeight: 700,
+                    background: "#2563eb",
+                    color: "#ffffff",
+                    font: "inherit",
                   }}
                 >
                   Update status
@@ -279,70 +289,263 @@ export default async function AdminTicketDetailPage({
           </div>
         </section>
 
-        <section className="card" style={{ padding: 24 }}>
-          <h2>Reply to customer</h2>
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 16,
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 24,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Customer message
+            </h2>
 
-          <form action={sendTicketReplyAction}>
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#58677a",
+              }}
+            >
+              Original ticket message from the customer.
+            </p>
+          </div>
+
+          <div
+            style={{
+              padding: 18,
+              borderRadius: 14,
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <div
+              style={{
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.7,
+                color: "#122033",
+              }}
+            >
+              {typedTicket.message}
+            </div>
+          </div>
+        </section>
+
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 16,
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 24,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Reply to customer
+            </h2>
+
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#58677a",
+              }}
+            >
+              This sends an email reply to the customer and moves the ticket to In
+              progress.
+            </p>
+          </div>
+
+          <form
+            action={sendTicketReplyAction}
+            style={{ display: "grid", gap: 16 }}
+          >
             <input type="hidden" name="ticketId" value={typedTicket.id} />
             <input type="hidden" name="toEmail" value={typedTicket.email} />
             <input type="hidden" name="subject" value={typedTicket.subject} />
-            <input type="hidden" name="returnTo" value={returnTo} />
 
-            <textarea
-              name="replyBody"
-              placeholder="Write reply..."
-              required
+            <div
               style={{
-                width: "100%",
-                minHeight: 120,
-                marginTop: 10,
-                padding: 10,
-              }}
-            />
-
-            <button
-              type="submit"
-              style={{
-                marginTop: 10,
-                background: "#2563eb",
-                color: "#fff",
-                padding: "10px 16px",
-                borderRadius: 8,
-                border: "none",
+                display: "grid",
+                gap: 8,
               }}
             >
-              Send reply
-            </button>
+              <label
+                htmlFor="replyBody"
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "#122033",
+                }}
+              >
+                Reply message
+              </label>
+
+              <textarea
+                id="replyBody"
+                name="replyBody"
+                placeholder="Write your reply to the customer..."
+                required
+                style={{
+                  width: "100%",
+                  minHeight: 150,
+                  resize: "vertical",
+                  border: "1px solid #dbe4f0",
+                  background: "#ffffff",
+                  color: "#122033",
+                  borderRadius: 12,
+                  padding: "14px 14px",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  font: "inherit",
+                  lineHeight: 1.6,
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <button
+                type="submit"
+                style={{
+                  appearance: "none",
+                  border: 0,
+                  cursor: "pointer",
+                  borderRadius: 12,
+                  padding: "14px 18px",
+                  fontWeight: 700,
+                  background: "#2563eb",
+                  color: "#ffffff",
+                  font: "inherit",
+                }}
+              >
+                Send reply
+              </button>
+            </div>
           </form>
         </section>
 
-        <section className="card" style={{ padding: 24 }}>
-          <h2>Ticket history</h2>
-
-          {timeline.map((item) => (
-            <div
-              key={item.id}
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 14,
+          }}
+        >
+          <div>
+            <h2
               style={{
-                marginTop: 12,
-                padding: 16,
-                borderRadius: 12,
-                background:
-                  item.type === "customer" ? "#f8fafc" : "#eef4ff",
+                margin: 0,
+                fontSize: 24,
+                letterSpacing: "-0.02em",
               }}
             >
-              <p style={{ fontSize: 13, fontWeight: 700 }}>
-                {item.metaLabel}
-              </p>
+              Ticket history
+            </h2>
 
-              <p style={{ fontSize: 13 }}>{item.authorLabel}</p>
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#58677a",
+              }}
+            >
+              Replies sent to the customer for this ticket.
+            </p>
+          </div>
 
-              <p style={{ marginTop: 8 }}>{item.body}</p>
-
-              <p style={{ fontSize: 12, color: "#58677a" }}>
-                {new Date(item.created_at).toLocaleString()}
-              </p>
+          {replies.length === 0 ? (
+            <div
+              style={{
+                padding: 18,
+                borderRadius: 14,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                color: "#58677a",
+              }}
+            >
+              No replies yet.
             </div>
-          ))}
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {replies.map((reply) => (
+                <div
+                  key={reply.id}
+                  style={{
+                    padding: 18,
+                    borderRadius: 14,
+                    background: "#eef4ff",
+                    border: "1px solid #dbe4f0",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "#122033",
+                        }}
+                      >
+                        Reply sent to {reply.sent_to}
+                      </p>
+
+                      <p
+                        style={{
+                          margin: "4px 0 0",
+                          fontSize: 13,
+                          color: "#58677a",
+                        }}
+                      >
+                        From {reply.sent_by}
+                      </p>
+                    </div>
+
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 13,
+                        color: "#58677a",
+                      }}
+                    >
+                      {new Date(reply.created_at).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      whiteSpace: "pre-wrap",
+                      lineHeight: 1.7,
+                      color: "#122033",
+                    }}
+                  >
+                    {reply.body}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </main>
