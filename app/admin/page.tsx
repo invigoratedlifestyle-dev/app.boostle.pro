@@ -26,11 +26,6 @@ function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  console.log("Admin env check:", {
-    hasUrl: Boolean(url),
-    hasServiceRoleKey: Boolean(serviceRoleKey),
-  });
-
   if (!url || !serviceRoleKey) {
     throw new Error("Missing Supabase environment variables.");
   }
@@ -117,12 +112,10 @@ export default async function AdminDashboardPage({
   const status = normaliseStatus(params.status);
   const sort = normaliseSort(params.sort);
 
-  console.log("Admin page params:", { q, status, sort });
-
   const supabase = getSupabaseAdmin();
 
   let ticketsQuery = supabase
-    .from("support_tickets") // ✅ FIXED
+    .from("support_tickets")
     .select("id, name, email, subject, message, status, created_at");
 
   if (status !== "all") {
@@ -144,27 +137,22 @@ export default async function AdminDashboardPage({
     await Promise.all([
       ticketsQuery,
       supabase
-        .from("support_tickets") // ✅ FIXED
+        .from("support_tickets")
         .select("*", { count: "exact", head: true })
         .eq("status", "open"),
       supabase
-        .from("support_tickets") // ✅ FIXED
+        .from("support_tickets")
         .select("*", { count: "exact", head: true })
         .eq("status", "in_progress"),
       supabase
-        .from("support_tickets") // ✅ FIXED
+        .from("support_tickets")
         .select("*", { count: "exact", head: true })
         .eq("status", "closed"),
     ]);
 
   if (ticketsResult.error) {
-    console.error("Tickets query failed:", ticketsResult.error);
     throw new Error(ticketsResult.error.message);
   }
-
-  if (openCountResult.error) throw new Error(openCountResult.error.message);
-  if (inProgressCountResult.error) throw new Error(inProgressCountResult.error.message);
-  if (closedCountResult.error) throw new Error(closedCountResult.error.message);
 
   const tickets = (ticketsResult.data ?? []) as Ticket[];
 
@@ -173,8 +161,6 @@ export default async function AdminDashboardPage({
     in_progress: inProgressCountResult.count ?? 0,
     closed: closedCountResult.count ?? 0,
   };
-
-  const totalCount = counts.open + counts.in_progress + counts.closed;
 
   const returnTo = buildAdminUrl({
     q: q || undefined,
@@ -185,30 +171,67 @@ export default async function AdminDashboardPage({
   const tabs: TicketStatusFilter[] = ["all", "open", "in_progress", "closed"];
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <main className="page-shell">
+      <div className="container">
 
         {/* Header */}
         <div>
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-sky-600">
+          <p
+            style={{
+              fontSize: 13,
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              color: "#2563eb",
+              marginBottom: 6,
+            }}
+          >
             Boostle Support
           </p>
-          <h1 className="mt-1 text-3xl font-bold text-slate-900">
+
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 34,
+              letterSpacing: "-0.03em",
+            }}
+          >
             Ticket Dashboard
           </h1>
         </div>
 
         {/* Tabs */}
-        <div className="flex flex-wrap gap-2">
+        <div
+          style={{
+            marginTop: 14,
+            marginBottom: 22,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
           {tabs.map((tab) => {
             const active = tab === status;
+
             return (
               <Link
                 key={tab}
                 href={getTabHref({ activeStatus: tab, q, sort })}
-                className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                  active ? "bg-slate-900 text-white" : "bg-slate-100"
-                }`}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 999,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  background: active ? "#0f172a" : "#f1f5f9",
+                  color: active ? "#ffffff" : "#334155",
+                  textDecoration: "none",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = "#e2e8f0";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "#f1f5f9";
+                }}
               >
                 {getTabLabel(tab)} ({getCountForStatus(tab, counts)})
               </Link>
