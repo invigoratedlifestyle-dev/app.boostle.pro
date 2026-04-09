@@ -21,23 +21,18 @@ type TicketsTableProps = {
   returnTo: string;
 };
 
-function getStatusClasses(status: TicketStatus) {
+function getStatusStyle(status: TicketStatus) {
   if (status === "open") {
-    return "bg-emerald-100 text-emerald-700";
+    return { background: "#dcfce7", color: "#15803d" };
   }
-
   if (status === "in_progress") {
-    return "bg-amber-100 text-amber-700";
+    return { background: "#fef3c7", color: "#b45309" };
   }
-
-  return "bg-slate-200 text-slate-700";
+  return { background: "#e2e8f0", color: "#475569" };
 }
 
 function getStatusLabel(status: TicketStatus) {
-  if (status === "in_progress") {
-    return "In progress";
-  }
-
+  if (status === "in_progress") return "In progress";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
@@ -54,29 +49,20 @@ export default function TicketsTable({
 
   function toggleAll(checked: boolean) {
     if (checked) {
-      setSelectedIds(tickets.map((ticket) => ticket.id));
-      return;
+      setSelectedIds(tickets.map((t) => t.id));
+    } else {
+      setSelectedIds([]);
     }
-
-    setSelectedIds([]);
   }
 
-  function toggleOne(ticketId: string, checked: boolean) {
-    setSelectedIds((current) => {
-      if (checked) {
-        if (current.includes(ticketId)) {
-          return current;
-        }
-
-        return [...current, ticketId];
-      }
-
-      return current.filter((id) => id !== ticketId);
-    });
+  function toggleOne(id: string, checked: boolean) {
+    setSelectedIds((current) =>
+      checked ? [...current, id] : current.filter((x) => x !== id),
+    );
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <section className="card" style={{ padding: 0 }}>
       <form action={bulkUpdateTicketsAction}>
         <input type="hidden" name="returnTo" value={returnTo} />
 
@@ -84,127 +70,142 @@ export default function TicketsTable({
           <input key={id} type="hidden" name="selectedIds" value={id} />
         ))}
 
-        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        {/* Header */}
+        <div
+          style={{
+            padding: 20,
+            borderBottom: "1px solid #e2e8f0",
+            display: "flex",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Tickets</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <h2 style={{ margin: 0 }}>Tickets</h2>
+            <p style={{ margin: 0, color: "#64748b" }}>
               {tickets.length} result{tickets.length === 1 ? "" : "s"}
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="text-sm text-slate-600">
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 14 }}>
               {selectedCount > 0
                 ? `${selectedCount} selected`
-                : "Select tickets to use bulk actions"}
-            </div>
+                : "Select tickets"}
+            </span>
 
-            <div className="flex gap-2">
-              <select
-                name="bulkAction"
-                defaultValue=""
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-                disabled={selectedCount === 0}
-              >
-                <option value="" disabled>
-                  Bulk action
-                </option>
-                <option value="open">Mark as open</option>
-                <option value="in_progress">Mark as in progress</option>
-                <option value="closed">Mark as closed</option>
-              </select>
+            <select
+              name="bulkAction"
+              disabled={!selectedCount}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid #dbe4f0",
+              }}
+            >
+              <option value="">Bulk action</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="closed">Closed</option>
+            </select>
 
-              <button
-                type="submit"
-                disabled={selectedCount === 0}
-                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Apply
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={!selectedCount}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "none",
+                background: "#2563eb",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              Apply
+            </button>
           </div>
         </div>
 
+        {/* Select all */}
+        <div style={{ padding: 16, borderBottom: "1px solid #e2e8f0" }}>
+          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={(e) => toggleAll(e.target.checked)}
+            />
+            Select all visible tickets
+          </label>
+        </div>
+
+        {/* Empty state */}
         {tickets.length === 0 ? (
-          <div className="px-5 py-12 text-center">
-            <p className="text-base font-medium text-slate-900">No tickets found</p>
-            <p className="mt-2 text-sm text-slate-500">
-              Try changing your filters or search.
-            </p>
+          <div style={{ padding: 40, textAlign: "center" }}>
+            <p>No tickets found</p>
           </div>
         ) : (
           <div>
-            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
-              <label className="inline-flex items-center gap-3 text-sm font-medium text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={(event) => toggleAll(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-sky-500"
-                />
-                Select all visible tickets
-              </label>
-            </div>
+            {tickets.map((ticket) => {
+              const isChecked = selectedIds.includes(ticket.id);
 
-            <div className="divide-y divide-slate-200">
-              {tickets.map((ticket) => {
-                const isChecked = selectedIds.includes(ticket.id);
+              return (
+                <div
+                  key={ticket.id}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    padding: 16,
+                    borderBottom: "1px solid #f1f5f9",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) =>
+                      toggleOne(ticket.id, e.target.checked)
+                    }
+                  />
 
-                return (
-                  <div
-                    key={ticket.id}
-                    className="flex gap-4 px-5 py-4 transition hover:bg-slate-50"
+                  <Link
+                    href={`/admin/tickets/${ticket.id}`}
+                    style={{ flex: 1, textDecoration: "none", color: "inherit" }}
                   >
-                    <div className="pt-1">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(event) =>
-                          toggleOne(ticket.id, event.target.checked)
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-sky-500"
-                        aria-label={`Select ticket ${ticket.subject}`}
-                      />
-                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <strong>{ticket.subject}</strong>
 
-                    <Link
-                      href={`/admin/tickets/${ticket.id}`}
-                      className="block min-w-0 flex-1"
-                    >
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-base font-semibold text-slate-900">
-                              {ticket.subject}
-                            </h3>
-
-                            <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusClasses(
-                                ticket.status,
-                              )}`}
-                            >
-                              {getStatusLabel(ticket.status)}
-                            </span>
-                          </div>
-
-                          <p className="mt-1 text-sm text-slate-600">
-                            {ticket.name} · {ticket.email}
-                          </p>
-
-                          <p className="mt-3 line-clamp-2 text-sm text-slate-500">
-                            {ticket.message}
-                          </p>
+                          <span
+                            style={{
+                              ...getStatusStyle(ticket.status),
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {getStatusLabel(ticket.status)}
+                          </span>
                         </div>
 
-                        <div className="shrink-0 text-sm text-slate-500">
-                          {new Date(ticket.created_at).toLocaleString()}
+                        <div style={{ fontSize: 14, color: "#64748b" }}>
+                          {ticket.name} · {ticket.email}
+                        </div>
+
+                        <div style={{ fontSize: 14, marginTop: 6 }}>
+                          {ticket.message}
                         </div>
                       </div>
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
+
+                      <div style={{ fontSize: 12, color: "#64748b" }}>
+                        {new Date(ticket.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  </Link>
+                </div>
+              );
+            })}
           </div>
         )}
       </form>
