@@ -82,6 +82,7 @@ function getCountForStatus(
   if (status === "all") {
     return counts.open + counts.in_progress + counts.closed;
   }
+
   return counts[status];
 }
 
@@ -154,6 +155,18 @@ export default async function AdminDashboardPage({
     throw new Error(ticketsResult.error.message);
   }
 
+  if (openCountResult.error) {
+    throw new Error(openCountResult.error.message);
+  }
+
+  if (inProgressCountResult.error) {
+    throw new Error(inProgressCountResult.error.message);
+  }
+
+  if (closedCountResult.error) {
+    throw new Error(closedCountResult.error.message);
+  }
+
   const tickets = (ticketsResult.data ?? []) as Ticket[];
 
   const counts: Record<TicketStatus, number> = {
@@ -173,8 +186,6 @@ export default async function AdminDashboardPage({
   return (
     <main className="page-shell">
       <div className="container">
-
-        {/* Header */}
         <div>
           <p
             style={{
@@ -182,7 +193,7 @@ export default async function AdminDashboardPage({
               letterSpacing: "0.15em",
               textTransform: "uppercase",
               color: "#2563eb",
-              marginBottom: 6,
+              margin: "0 0 6px",
             }}
           >
             Boostle Support
@@ -199,7 +210,6 @@ export default async function AdminDashboardPage({
           </h1>
         </div>
 
-        {/* Tabs */}
         <div
           style={{
             marginTop: 14,
@@ -224,13 +234,6 @@ export default async function AdminDashboardPage({
                   background: active ? "#0f172a" : "#f1f5f9",
                   color: active ? "#ffffff" : "#334155",
                   textDecoration: "none",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  if (!active) e.currentTarget.style.background = "#e2e8f0";
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) e.currentTarget.style.background = "#f1f5f9";
                 }}
               >
                 {getTabLabel(tab)} ({getCountForStatus(tab, counts)})
@@ -239,9 +242,7 @@ export default async function AdminDashboardPage({
           })}
         </div>
 
-        {/* Table */}
         <TicketsTable tickets={tickets} returnTo={returnTo} />
-
       </div>
     </main>
   );
