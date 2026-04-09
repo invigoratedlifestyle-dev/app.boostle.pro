@@ -14,7 +14,12 @@ function getSupabaseAdmin() {
     throw new Error("Missing Supabase environment variables.");
   }
 
-  return createClient(url, serviceRoleKey);
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 function isTicketStatus(value: string): value is TicketStatus {
@@ -24,15 +29,18 @@ function isTicketStatus(value: string): value is TicketStatus {
 export async function bulkUpdateTicketsAction(formData: FormData) {
   const action = String(formData.get("bulkAction") ?? "");
   const returnTo = String(formData.get("returnTo") ?? "/admin");
+
   const selectedIds = formData
     .getAll("selectedIds")
     .map((value) => String(value))
     .filter(Boolean);
 
+  // Validate action
   if (!isTicketStatus(action)) {
     redirect(returnTo);
   }
 
+  // Validate selection
   if (selectedIds.length === 0) {
     redirect(returnTo);
   }
@@ -45,9 +53,13 @@ export async function bulkUpdateTicketsAction(formData: FormData) {
     .in("id", selectedIds);
 
   if (error) {
+    console.error("Bulk update failed:", error);
     throw new Error(error.message);
   }
 
+  // Revalidate admin dashboard
   revalidatePath("/admin");
+
+  // Redirect back to filtered view
   redirect(returnTo);
 }

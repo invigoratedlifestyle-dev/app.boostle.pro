@@ -16,11 +16,11 @@ type Ticket = {
   created_at: string;
 };
 
-type SearchParams = Promise<{
+type SearchParams = {
   q?: string;
   status?: string;
   sort?: string;
-}>;
+};
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,7 +30,12 @@ function getSupabaseAdmin() {
     throw new Error("Missing Supabase environment variables.");
   }
 
-  return createClient(url, serviceRoleKey);
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 function normaliseStatus(value?: string): TicketStatusFilter {
@@ -115,9 +120,9 @@ function getTabHref({
 export default async function AdminDashboardPage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams?: Promise<SearchParams>;
 }) {
-  const params = await searchParams;
+  const params = searchParams ? await searchParams : {};
 
   const q = params.q?.trim() ?? "";
   const status = normaliseStatus(params.status);
