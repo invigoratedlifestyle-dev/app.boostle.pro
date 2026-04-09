@@ -61,9 +61,17 @@ function buildAdminUrl({
 }) {
   const params = new URLSearchParams();
 
-  if (q) params.set("q", q);
-  if (status && status !== "all") params.set("status", status);
-  if (sort && sort !== "newest") params.set("sort", sort);
+  if (q) {
+    params.set("q", q);
+  }
+
+  if (status && status !== "all") {
+    params.set("status", status);
+  }
+
+  if (sort && sort !== "newest") {
+    params.set("sort", sort);
+  }
 
   const queryString = params.toString();
   return queryString ? `/admin?${queryString}` : "/admin";
