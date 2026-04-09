@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import TicketsTable from "./tickets-table";
+import "../globals.css";
 
 type TicketStatus = "open" | "in_progress" | "closed";
 type TicketStatusFilter = TicketStatus | "all";
