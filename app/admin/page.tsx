@@ -26,6 +26,11 @@ function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+  console.log("Admin env check:", {
+    hasUrl: Boolean(url),
+    hasServiceRoleKey: Boolean(serviceRoleKey),
+  });
+
   if (!url || !serviceRoleKey) {
     throw new Error("Missing Supabase environment variables.");
   }
@@ -128,6 +133,8 @@ export default async function AdminDashboardPage({
   const status = normaliseStatus(params.status);
   const sort = normaliseSort(params.sort);
 
+  console.log("Admin page params:", { q, status, sort });
+
   const supabase = getSupabaseAdmin();
 
   let ticketsQuery = supabase
@@ -142,12 +149,7 @@ export default async function AdminDashboardPage({
     const escapedQ = q.replace(/,/g, "\\,");
 
     ticketsQuery = ticketsQuery.or(
-      [
-        `name.ilike.%${escapedQ}%`,
-        `email.ilike.%${escapedQ}%`,
-        `subject.ilike.%${escapedQ}%`,
-        `message.ilike.%${escapedQ}%`,
-      ].join(","),
+      `name.ilike.%${escapedQ}%,email.ilike.%${escapedQ}%,subject.ilike.%${escapedQ}%`,
     );
   }
 
@@ -173,7 +175,23 @@ export default async function AdminDashboardPage({
     ]);
 
   if (ticketsResult.error) {
+    console.error("Tickets query failed:", ticketsResult.error);
     throw new Error(ticketsResult.error.message);
+  }
+
+  if (openCountResult.error) {
+    console.error("Open count failed:", openCountResult.error);
+    throw new Error(openCountResult.error.message);
+  }
+
+  if (inProgressCountResult.error) {
+    console.error("In progress count failed:", inProgressCountResult.error);
+    throw new Error(inProgressCountResult.error.message);
+  }
+
+  if (closedCountResult.error) {
+    console.error("Closed count failed:", closedCountResult.error);
+    throw new Error(closedCountResult.error.message);
   }
 
   const tickets = (ticketsResult.data ?? []) as Ticket[];
@@ -289,7 +307,7 @@ export default async function AdminDashboardPage({
                 id="q"
                 name="q"
                 defaultValue={q}
-                placeholder="Search name, email, subject, or message..."
+                placeholder="Search name, email, or subject..."
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
               />
             </div>
