@@ -35,12 +35,10 @@ export async function bulkUpdateTicketsAction(formData: FormData) {
     .map((value) => String(value))
     .filter(Boolean);
 
-  // Validate action
   if (!isTicketStatus(action)) {
     redirect(returnTo);
   }
 
-  // Validate selection
   if (selectedIds.length === 0) {
     redirect(returnTo);
   }
@@ -48,7 +46,7 @@ export async function bulkUpdateTicketsAction(formData: FormData) {
   const supabase = getSupabaseAdmin();
 
   const { error } = await supabase
-    .from("support_tickets") // ✅ FIXED
+    .from("support_tickets")
     .update({ status: action })
     .in("id", selectedIds);
 
@@ -57,9 +55,6 @@ export async function bulkUpdateTicketsAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  // Revalidate admin dashboard
   revalidatePath("/admin");
-
-  // Redirect back to filtered view
   redirect(returnTo);
 }

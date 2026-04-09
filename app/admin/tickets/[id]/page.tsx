@@ -1,375 +1,452 @@
-"use client";
-
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import type {
-  SupportTicket,
-  SupportTicketPriority,
-  SupportTicketStatus,
-} from "@/types/support";
+import { notFound } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
+import {
+  sendTicketReplyAction,
+  updateTicketStatusAction,
+} from "./actions";
 
-type GetTicketResponse = {
-  ok?: boolean;
-  ticket?: SupportTicket;
-  error?: string;
+type TicketStatus = "open" | "in_progress" | "closed";
+
+type Ticket = {
+  id: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: TicketStatus;
+  created_at: string;
 };
 
-type UpdateTicketResponse = {
-  ok?: boolean;
-  ticket?: SupportTicket;
-  error?: string;
+type TicketReply = {
+  id: string;
+  ticket_id: string;
+  body: string;
+  sent_to: string;
+  sent_by: string;
+  created_at: string;
 };
 
-const statusOptions: Array<{
-  value: SupportTicketStatus;
-  label: string;
-}> = [
-  { value: "open", label: "Open" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "waiting_on_customer", label: "Waiting on Customer" },
-  { value: "resolved", label: "Resolved" },
-  { value: "closed", label: "Closed" },
-];
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const priorityOptions: Array<{
-  value: SupportTicketPriority;
-  label: string;
-}> = [
-  { value: "low", label: "Low" },
-  { value: "normal", label: "Normal" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
-];
+  if (!url || !serviceRoleKey) {
+    throw new Error("Missing Supabase environment variables.");
+  }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-AU", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
-export default function AdminTicketDetailPage() {
-  const params = useParams<{ id: string }>();
-  const ticketId = params?.id;
-
-  const [ticket, setTicket] = useState<SupportTicket | null>(null);
-  const [status, setStatus] = useState<SupportTicketStatus>("open");
-  const [priority, setPriority] = useState<SupportTicketPriority>("normal");
-  const [adminNotes, setAdminNotes] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<{
-    type: "idle" | "error" | "success";
-    message: string;
-  }>({
-    type: "idle",
-    message: "",
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadTicket() {
-      if (!ticketId) {
-        setLoading(false);
-        setNotice({
-          type: "error",
-          message: "Missing ticket id.",
-        });
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setNotice({ type: "idle", message: "" });
-
-        const response = await fetch(
-          `/api/admin/tickets/get?id=${encodeURIComponent(ticketId)}`,
-          {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-          },
-        );
-
-        const data = (await response.json()) as GetTicketResponse;
-
-        if (!response.ok || !data.ok || !data.ticket) {
-          throw new Error(data.error || "Failed to load ticket.");
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        setTicket(data.ticket);
-        setStatus(data.ticket.status);
-        setPriority(data.ticket.priority);
-        setAdminNotes(data.ticket.admin_notes ?? "");
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setNotice({
-          type: "error",
-          message:
-            error instanceof Error ? error.message : "Failed to load ticket.",
-        });
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void loadTicket();
-
-    return () => {
-      cancelled = true;
+function getStatusStyle(status: TicketStatus) {
+  if (status === "open") {
+    return {
+      background: "#dcfce7",
+      color: "#15803d",
     };
-  }, [ticketId]);
-
-  const hasChanges = useMemo(() => {
-    if (!ticket) {
-      return false;
-    }
-
-    return (
-      status !== ticket.status ||
-      priority !== ticket.priority ||
-      adminNotes !== (ticket.admin_notes ?? "")
-    );
-  }, [ticket, status, priority, adminNotes]);
-
-  async function handleSave() {
-    if (!ticket) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setNotice({ type: "idle", message: "" });
-
-      const response = await fetch("/api/admin/tickets/update", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: ticket.id,
-          status,
-          priority,
-          admin_notes: adminNotes,
-        }),
-      });
-
-      const data = (await response.json()) as UpdateTicketResponse;
-
-      if (!response.ok || !data.ok || !data.ticket) {
-        throw new Error(data.error || "Failed to save ticket.");
-      }
-
-      setTicket(data.ticket);
-      setStatus(data.ticket.status);
-      setPriority(data.ticket.priority);
-      setAdminNotes(data.ticket.admin_notes ?? "");
-      setNotice({
-        type: "success",
-        message: "Ticket updated successfully.",
-      });
-    } catch (error) {
-      setNotice({
-        type: "error",
-        message:
-          error instanceof Error ? error.message : "Failed to save ticket.",
-      });
-    } finally {
-      setSaving(false);
-    }
   }
+
+  if (status === "in_progress") {
+    return {
+      background: "#fef3c7",
+      color: "#b45309",
+    };
+  }
+
+  return {
+    background: "#e2e8f0",
+    color: "#475569",
+  };
+}
+
+function getStatusLabel(status: TicketStatus) {
+  if (status === "in_progress") {
+    return "In progress";
+  }
+
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+export default async function AdminTicketDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const supabase = getSupabaseAdmin();
+
+  const { data: ticket, error: ticketError } = await supabase
+    .from("support_tickets")
+    .select("id, name, email, subject, message, status, created_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (ticketError) {
+    throw new Error(ticketError.message);
+  }
+
+  if (!ticket) {
+    notFound();
+  }
+
+  const repliesResult = await supabase
+    .from("support_ticket_replies")
+    .select("id, ticket_id, body, sent_to, sent_by, created_at")
+    .eq("ticket_id", id)
+    .order("created_at", { ascending: true });
+
+  const replies =
+    repliesResult.error == null
+      ? ((repliesResult.data ?? []) as TicketReply[])
+      : [];
+
+  const typedTicket = ticket as Ticket;
+  const returnTo = `/admin/tickets/${typedTicket.id}`;
 
   return (
     <main className="page-shell">
-      <div className="container">
-        <div className="card" style={{ padding: 28 }}>
-          <div className="eyebrow">Boostle Support</div>
+      <div className="container" style={{ display: "grid", gap: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <p
+              style={{
+                fontSize: 13,
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                color: "#2563eb",
+                margin: "0 0 6px",
+              }}
+            >
+              Boostle Support
+            </p>
 
-          <div style={{ marginTop: 18 }}>
-            <Link href="/admin" className="status-text">
-              ← Back to dashboard
-            </Link>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 34,
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Ticket Detail
+            </h1>
           </div>
 
-          {loading ? (
-            <div style={{ marginTop: 18 }}>
-              <h1 style={{ margin: "8px 0 0" }}>Loading ticket...</h1>
-            </div>
-          ) : !ticket ? (
-            <div style={{ marginTop: 18 }}>
-              <h1 style={{ margin: "8px 0 0" }}>Ticket unavailable</h1>
-              {notice.message ? (
-                <p
-                  className={`status-text ${
-                    notice.type === "error" ? "status-error" : ""
-                  }`}
-                  style={{ marginTop: 12 }}
-                >
-                  {notice.message}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              <h1 style={{ margin: "16px 0 8px" }}>
-                Ticket #{ticket.ticket_number}
-              </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Link
+              href="/admin"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                background: "#eef4ff",
+                color: "#2563eb",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        </div>
 
-              <p className="lead" style={{ maxWidth: "none" }}>
-                Review the request, update its status, and keep internal notes.
-              </p>
-
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 20,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 16,
+              flexWrap: "wrap",
+              alignItems: "flex-start",
+            }}
+          >
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
-                  marginTop: 24,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 16,
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  flexWrap: "wrap",
                 }}
               >
-                <div className="card" style={{ padding: 18 }}>
-                  <strong>Customer</strong>
-                  <div style={{ marginTop: 10 }}>{ticket.name}</div>
-                  <div className="status-text" style={{ marginTop: 6 }}>
-                    {ticket.email}
-                  </div>
-                </div>
-
-                <div className="card" style={{ padding: 18 }}>
-                  <strong>Created</strong>
-                  <div style={{ marginTop: 10 }}>
-                    {formatDate(ticket.created_at)}
-                  </div>
-                  <div className="status-text" style={{ marginTop: 6 }}>
-                    Last updated {formatDate(ticket.updated_at)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: 20, padding: 18 }}>
-                <strong>Subject</strong>
-                <div style={{ marginTop: 10 }}>{ticket.subject}</div>
-              </div>
-
-              <div className="card" style={{ marginTop: 20, padding: 18 }}>
-                <strong>Customer message</strong>
-                <div
+                <h2
                   style={{
-                    marginTop: 10,
-                    whiteSpace: "pre-wrap",
-                    lineHeight: 1.65,
+                    margin: 0,
+                    fontSize: 28,
+                    lineHeight: 1.15,
+                    letterSpacing: "-0.03em",
                   }}
                 >
-                  {ticket.message}
-                </div>
+                  {typedTicket.subject}
+                </h2>
+
+                <span
+                  style={{
+                    ...getStatusStyle(typedTicket.status),
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {getStatusLabel(typedTicket.status)}
+                </span>
               </div>
+
+              <p
+                style={{
+                  margin: "10px 0 0",
+                  color: "#58677a",
+                }}
+              >
+                From {typedTicket.name} · {typedTicket.email}
+              </p>
+
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  color: "#58677a",
+                  fontSize: 14,
+                }}
+              >
+                Submitted {new Date(typedTicket.created_at).toLocaleString()}
+              </p>
+            </div>
+
+            <form action={updateTicketStatusAction}>
+              <input type="hidden" name="ticketId" value={typedTicket.id} />
+              <input type="hidden" name="returnTo" value={returnTo} />
 
               <div
                 style={{
-                  marginTop: 20,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 16,
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  flexWrap: "wrap",
                 }}
               >
-                <div className="field">
-                  <label className="label" htmlFor="ticket-status">
-                    Status
-                  </label>
-                  <select
-                    id="ticket-status"
-                    className="select"
-                    value={status}
-                    onChange={(event) =>
-                      setStatus(event.target.value as SupportTicketStatus)
-                    }
-                  >
-                    {statusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="field">
-                  <label className="label" htmlFor="ticket-priority">
-                    Priority
-                  </label>
-                  <select
-                    id="ticket-priority"
-                    className="select"
-                    value={priority}
-                    onChange={(event) =>
-                      setPriority(event.target.value as SupportTicketPriority)
-                    }
-                  >
-                    {priorityOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="field" style={{ marginTop: 20 }}>
-                <label className="label" htmlFor="admin-notes">
-                  Admin notes
-                </label>
-                <textarea
-                  id="admin-notes"
-                  className="textarea"
-                  value={adminNotes}
-                  onChange={(event) => setAdminNotes(event.target.value)}
-                  placeholder="Add internal notes for follow-up, troubleshooting, or customer context."
-                />
-              </div>
-
-              {notice.message ? (
-                <div
-                  className={`status-text ${
-                    notice.type === "error"
-                      ? "status-error"
-                      : notice.type === "success"
-                        ? "status-success"
-                        : ""
-                  }`}
-                  style={{ marginTop: 14 }}
+                <select
+                  name="status"
+                  defaultValue={typedTicket.status}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "1px solid #dbe4f0",
+                    background: "#fff",
+                    color: "#122033",
+                  }}
                 >
-                  {notice.message}
-                </div>
-              ) : null}
+                  <option value="open">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="closed">Closed</option>
+                </select>
 
-              <div style={{ marginTop: 20, display: "flex", gap: 12 }}>
                 <button
-                  type="button"
+                  type="submit"
                   className="button button-primary"
-                  onClick={handleSave}
-                  disabled={saving || !hasChanges}
                 >
-                  {saving ? "Saving..." : "Save changes"}
+                  Update status
                 </button>
-
-                <Link href="/admin" className="button button-secondary">
-                  Back to dashboard
-                </Link>
               </div>
-            </>
+            </form>
+          </div>
+
+          <div
+            style={{
+              padding: 18,
+              borderRadius: 14,
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <p
+              style={{
+                margin: "0 0 10px",
+                fontWeight: 700,
+              }}
+            >
+              Customer message
+            </p>
+
+            <div
+              style={{
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.7,
+                color: "#122033",
+              }}
+            >
+              {typedTicket.message}
+            </div>
+          </div>
+        </section>
+
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 16,
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 24,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Reply to customer
+            </h2>
+
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#58677a",
+              }}
+            >
+              This sends an email reply to the customer and moves the ticket to
+              In progress.
+            </p>
+          </div>
+
+          <form
+            action={sendTicketReplyAction}
+            style={{ display: "grid", gap: 16 }}
+          >
+            <input type="hidden" name="ticketId" value={typedTicket.id} />
+            <input type="hidden" name="toEmail" value={typedTicket.email} />
+            <input type="hidden" name="subject" value={typedTicket.subject} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+
+            <div className="field">
+              <label className="label" htmlFor="replyBody">
+                Reply message
+              </label>
+
+              <textarea
+                id="replyBody"
+                name="replyBody"
+                className="textarea"
+                placeholder="Write your reply to the customer..."
+                required
+              />
+            </div>
+
+            <div className="form-actions">
+              <button type="submit" className="button button-primary">
+                Send reply
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section
+          className="card"
+          style={{
+            padding: 24,
+            display: "grid",
+            gap: 14,
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 24,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Reply history
+            </h2>
+
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#58677a",
+              }}
+            >
+              Sent replies recorded against this ticket.
+            </p>
+          </div>
+
+          {replies.length === 0 ? (
+            <div
+              style={{
+                padding: 18,
+                borderRadius: 14,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                color: "#58677a",
+              }}
+            >
+              No replies yet.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {replies.map((reply) => (
+                <div
+                  key={reply.id}
+                  style={{
+                    padding: 18,
+                    borderRadius: 14,
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 13,
+                      color: "#58677a",
+                    }}
+                  >
+                    Sent {new Date(reply.created_at).toLocaleString()} · To{" "}
+                    {reply.sent_to}
+                  </p>
+
+                  <p
+                    style={{
+                      margin: "4px 0 0",
+                      fontSize: 13,
+                      color: "#58677a",
+                    }}
+                  >
+                    From {reply.sent_by}
+                  </p>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      whiteSpace: "pre-wrap",
+                      lineHeight: 1.7,
+                      color: "#122033",
+                    }}
+                  >
+                    {reply.body}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </div>
+        </section>
       </div>
     </main>
   );
