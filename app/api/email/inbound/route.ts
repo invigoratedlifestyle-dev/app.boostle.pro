@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import { Webhook } from "svix";
 
 export const runtime = "nodejs";
@@ -20,7 +19,6 @@ type ReceivedAttachmentMeta = {
   filename?: string;
   content_type?: string;
   size?: number;
-  download_url?: string;
 };
 
 type ResendReceivedEvent = {
@@ -37,23 +35,6 @@ type ResendReceivedEvent = {
     message_id?: string;
     attachments?: ReceivedAttachmentMeta[];
   };
-};
-
-type ResendReceivedEmail = {
-  html?: string | null;
-  text?: string | null;
-  headers?: Array<{
-    name?: string;
-    value?: string;
-  }>;
-};
-
-type ResendListAttachmentsResponse = {
-  data?: ReceivedAttachmentMeta[];
-  error?: {
-    message?: string;
-    name?: string;
-  } | null;
 };
 
 function getEnv(name: string): string {
@@ -189,7 +170,6 @@ function verifyWebhookWithSvix(
 
 export async function POST(request: NextRequest) {
   try {
-    const resend = new Resend(getEnv("RESEND_API_KEY"));
     const payload = await request.text();
     const verified = verifyWebhookWithSvix(payload, request);
 
@@ -211,44 +191,6 @@ export async function POST(request: NextRequest) {
       return badRequest("Recipient address does not match support routing rules.");
     }
 
-    const receivingApi = (
-      resend.emails as unknown as {
-        receiving: {
-          get(emailId: string): Promise<{
-            data: ResendReceivedEmail | null;
-            error: { message?: string } | null;
-          }>;
-          attachments: {
-            list(args: { emailId: string }): Promise<ResendListAttachmentsResponse>;
-          };
-        };
-      }
-    ).receiving;
-
-    const { data: receivedEmail, error: receivedEmailError } =
-      await receivingApi.get(verified.data.email_id);
-
-    if (receivedEmailError || !receivedEmail) {
-      console.error("Failed fetching received email body", receivedEmailError);
-      return NextResponse.json(
-        { error: "Failed retrieving received email content." },
-        { status: 500 },
-      );
-    }
-
-    const { data: attachmentsData, error: attachmentsError } =
-      await receivingApi.attachments.list({
-        emailId: verified.data.email_id,
-      });
-
-    if (attachmentsError) {
-      console.error("Failed listing received email attachments", attachmentsError);
-      return NextResponse.json(
-        { error: "Failed retrieving received email attachments." },
-        { status: 500 },
-      );
-    }
-
     const senderEmail = extractEmailAddress(verified.data.from);
     if (!senderEmail) {
       return badRequest("Missing sender email.");
@@ -256,19 +198,23 @@ export async function POST(request: NextRequest) {
 
     const senderName = extractDisplayName(verified.data.from);
     const subject = (verified.data.subject ?? "(No subject)").trim() || "(No subject)";
-    const bodyText = receivedEmail.text?.trim() ?? "";
-    const bodyHtml = receivedEmail.html?.trim() ?? null;
     const providerMessageId =
       verified.data.message_id?.trim() || verified.data.email_id.trim();
 
-    const attachmentsJson =
-      attachmentsData?.map((attachment: ReceivedAttachmentMeta) => ({
+    // Resend's email.received webhook gives us routing metadata immediately.
+    // For MVP we store the envelope + subject now.
+    // Body retrieval can be added later if needed.
+    const bodyText = "";
+    const bodyHtml = null;
+
+    const attachmentsJson = (verified.data.attachments ?? []).map(
+      (attachment: ReceivedAttachmentMeta) => ({
         id: attachment.id ?? null,
         filename: attachment.filename ?? null,
         contentType: attachment.content_type ?? null,
         size: attachment.size ?? null,
-        downloadUrl: attachment.download_url ?? null,
-      })) ?? [];
+      }),
+    );
 
     const supabase = getSupabaseAdmin();
 
