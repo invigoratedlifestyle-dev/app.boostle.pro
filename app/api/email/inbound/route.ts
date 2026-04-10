@@ -1,49 +1,68 @@
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
+import { Webhook } from "svix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type PostmarkAddress = {
-  Email?: string;
-  Name?: string;
-  MailboxHash?: string;
-};
-
-type PostmarkAttachment = {
-  Name?: string;
-  ContentType?: string;
-  ContentLength?: number;
-};
-
-type PostmarkInboundPayload = {
-  From?: string;
-  FromName?: string;
-  FromFull?: PostmarkAddress;
-  To?: string;
-  ToFull?: PostmarkAddress[];
-  Cc?: string;
-  CcFull?: PostmarkAddress[];
-  Subject?: string;
-  TextBody?: string;
-  HtmlBody?: string;
-  StrippedTextReply?: string;
-  MessageID?: string;
-  Attachments?: PostmarkAttachment[];
-};
+type TicketStatus = "open" | "pending" | "closed";
 
 type TicketRow = {
   id: string;
   public_thread_id: string;
-  status: "open" | "pending" | "closed";
+  status: TicketStatus;
+};
+
+type ReceivedAttachmentMeta = {
+  id?: string;
+  filename?: string;
+  content_type?: string;
+  size?: number;
+  download_url?: string;
+};
+
+type ResendReceivedEvent = {
+  type: "email.received";
+  created_at: string;
+  data: {
+    email_id: string;
+    created_at: string;
+    from: string;
+    to: string[];
+    cc?: string[];
+    bcc?: string[];
+    subject?: string;
+    message_id?: string;
+    attachments?: ReceivedAttachmentMeta[];
+  };
+};
+
+type ResendReceivedEmail = {
+  html?: string | null;
+  text?: string | null;
+  headers?: Array<{
+    name?: string;
+    value?: string;
+  }>;
+};
+
+type ResendListAttachmentsResponse = {
+  data?: ReceivedAttachmentMeta[];
+  error?: {
+    message?: string;
+    name?: string;
+  } | null;
 };
 
 function getEnv(name: string): string {
   const value = process.env[name];
+
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
+
   return value;
 }
 
@@ -60,19 +79,11 @@ function getSupabaseAdmin() {
   );
 }
 
-function generatePublicThreadId(length = 8): string {
-  return randomBytes(16)
-    .toString("base64url")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .slice(0, length);
-}
-
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function extractEmailFromString(input: string | undefined | null): string | null {
+function extractEmailAddress(input: string | null | undefined): string | null {
   if (!input) return null;
 
   const trimmed = input.trim();
@@ -89,31 +100,25 @@ function extractEmailFromString(input: string | undefined | null): string | null
   return null;
 }
 
-function pickRecipient(payload: PostmarkInboundPayload): string | null {
-  const toFull = payload.ToFull ?? [];
+function extractDisplayName(input: string | null | undefined): string | null {
+  if (!input) return null;
 
-  for (const recipient of toFull) {
-    const email = recipient.Email ? normalizeEmail(recipient.Email) : null;
-    if (!email) continue;
+  const trimmed = input.trim();
+  const bracketIndex = trimmed.indexOf("<");
 
-    if (
-      email === "support@boostle.pro" ||
-      /^reply\+[a-z0-9_-]+@boostle\.pro$/i.test(email)
-    ) {
-      return email;
-    }
+  if (bracketIndex > 0) {
+    const name = trimmed.slice(0, bracketIndex).trim().replace(/^"|"$/g, "");
+    return name || null;
   }
 
-  return extractEmailFromString(payload.To);
+  return null;
 }
 
 function parseRouting(recipientEmail: string) {
   const normalized = normalizeEmail(recipientEmail);
 
   if (normalized === "support@boostle.pro") {
-    return {
-      type: "new_ticket" as const,
-    };
+    return { type: "new_ticket" as const };
   }
 
   const match = normalized.match(/^reply\+([a-z0-9_-]+)@boostle\.pro$/i);
@@ -125,54 +130,32 @@ function parseRouting(recipientEmail: string) {
     };
   }
 
-  return {
-    type: "unknown" as const,
-  };
+  return { type: "unknown" as const };
 }
 
-function getSenderEmail(payload: PostmarkInboundPayload): string | null {
-  if (payload.FromFull?.Email) {
-    return normalizeEmail(payload.FromFull.Email);
+function pickRecipient(to: string[]): string | null {
+  for (const value of to) {
+    const email = extractEmailAddress(value);
+
+    if (!email) continue;
+
+    if (
+      email === "support@boostle.pro" ||
+      /^reply\+[a-z0-9_-]+@boostle\.pro$/i.test(email)
+    ) {
+      return email;
+    }
   }
-
-  return extractEmailFromString(payload.From);
-}
-
-function getSenderName(payload: PostmarkInboundPayload): string | null {
-  const fromFullName = payload.FromFull?.Name?.trim();
-  if (fromFullName) return fromFullName;
-
-  const fromName = payload.FromName?.trim();
-  if (fromName) return fromName;
 
   return null;
 }
 
-function getSafeTextBody(payload: PostmarkInboundPayload): string {
-  const stripped = payload.StrippedTextReply?.trim();
-  if (stripped) return stripped;
-
-  const text = payload.TextBody?.trim();
-  if (text) return text;
-
-  const html = payload.HtmlBody?.trim();
-  if (html) return html;
-
-  return "";
-}
-
-function parseAttachments(payload: PostmarkInboundPayload) {
-  const attachments = payload.Attachments ?? [];
-
-  return attachments.map((attachment) => ({
-    name: attachment.Name ?? null,
-    contentType: attachment.ContentType ?? null,
-    contentLength: attachment.ContentLength ?? null,
-  }));
-}
-
-function unauthorized() {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+function generatePublicThreadId(length = 8): string {
+  return randomBytes(16)
+    .toString("base64url")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, length);
 }
 
 function badRequest(message: string) {
@@ -183,89 +166,131 @@ function ok(data: Record<string, unknown>) {
   return NextResponse.json(data, { status: 200 });
 }
 
-function verifyBasicAuth(request: NextRequest): boolean {
-  const username = process.env.POSTMARK_INBOUND_BASIC_AUTH_USERNAME;
-  const password = process.env.POSTMARK_INBOUND_BASIC_AUTH_PASSWORD;
+function verifyWebhookWithSvix(
+  payload: string,
+  request: NextRequest,
+): ResendReceivedEvent {
+  const svixId = request.headers.get("svix-id");
+  const svixTimestamp = request.headers.get("svix-timestamp");
+  const svixSignature = request.headers.get("svix-signature");
 
-  if (!username && !password) {
-    return true;
+  if (!svixId || !svixTimestamp || !svixSignature) {
+    throw new Error("Missing webhook signature headers.");
   }
 
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Basic ")) {
-    return false;
-  }
+  const webhook = new Webhook(getEnv("RESEND_WEBHOOK_SECRET"));
 
-  const encoded = authHeader.slice("Basic ".length).trim();
-
-  try {
-    const decoded = Buffer.from(encoded, "base64").toString("utf8");
-    const [providedUsername, ...rest] = decoded.split(":");
-    const providedPassword = rest.join(":");
-
-    return (
-      providedUsername === (username ?? "") &&
-      providedPassword === (password ?? "")
-    );
-  } catch {
-    return false;
-  }
+  return webhook.verify(payload, {
+    "svix-id": svixId,
+    "svix-timestamp": svixTimestamp,
+    "svix-signature": svixSignature,
+  }) as ResendReceivedEvent;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    if (!verifyBasicAuth(request)) {
-      return unauthorized();
+    const resend = new Resend(getEnv("RESEND_API_KEY"));
+    const payload = await request.text();
+    const verified = verifyWebhookWithSvix(payload, request);
+
+    if (verified.type !== "email.received") {
+      return ok({
+        ok: true,
+        ignored: true,
+        reason: "Unhandled event type",
+      });
     }
 
-    const payload = (await request.json()) as PostmarkInboundPayload;
-
-    const senderEmail = getSenderEmail(payload);
-    const senderName = getSenderName(payload);
-    const recipientEmail = pickRecipient(payload);
-    const subject = (payload.Subject ?? "(No subject)").trim() || "(No subject)";
-    const bodyText = getSafeTextBody(payload);
-    const bodyHtml = payload.HtmlBody?.trim() || null;
-    const providerMessageId = payload.MessageID?.trim() || null;
-    const attachments = parseAttachments(payload);
-
-    if (!senderEmail) {
-      return badRequest("Missing sender email.");
-    }
-
+    const recipientEmail = pickRecipient(verified.data.to ?? []);
     if (!recipientEmail) {
-      return badRequest("Missing recipient email.");
+      return badRequest("No supported recipient found.");
     }
 
     const routing = parseRouting(recipientEmail);
-
     if (routing.type === "unknown") {
       return badRequest("Recipient address does not match support routing rules.");
     }
 
+    const receivingApi = (
+      resend.emails as unknown as {
+        receiving: {
+          get(emailId: string): Promise<{
+            data: ResendReceivedEmail | null;
+            error: { message?: string } | null;
+          }>;
+          attachments: {
+            list(args: { emailId: string }): Promise<ResendListAttachmentsResponse>;
+          };
+        };
+      }
+    ).receiving;
+
+    const { data: receivedEmail, error: receivedEmailError } =
+      await receivingApi.get(verified.data.email_id);
+
+    if (receivedEmailError || !receivedEmail) {
+      console.error("Failed fetching received email body", receivedEmailError);
+      return NextResponse.json(
+        { error: "Failed retrieving received email content." },
+        { status: 500 },
+      );
+    }
+
+    const { data: attachmentsData, error: attachmentsError } =
+      await receivingApi.attachments.list({
+        emailId: verified.data.email_id,
+      });
+
+    if (attachmentsError) {
+      console.error("Failed listing received email attachments", attachmentsError);
+      return NextResponse.json(
+        { error: "Failed retrieving received email attachments." },
+        { status: 500 },
+      );
+    }
+
+    const senderEmail = extractEmailAddress(verified.data.from);
+    if (!senderEmail) {
+      return badRequest("Missing sender email.");
+    }
+
+    const senderName = extractDisplayName(verified.data.from);
+    const subject = (verified.data.subject ?? "(No subject)").trim() || "(No subject)";
+    const bodyText = receivedEmail.text?.trim() ?? "";
+    const bodyHtml = receivedEmail.html?.trim() ?? null;
+    const providerMessageId =
+      verified.data.message_id?.trim() || verified.data.email_id.trim();
+
+    const attachmentsJson =
+      attachmentsData?.map((attachment: ReceivedAttachmentMeta) => ({
+        id: attachment.id ?? null,
+        filename: attachment.filename ?? null,
+        contentType: attachment.content_type ?? null,
+        size: attachment.size ?? null,
+        downloadUrl: attachment.download_url ?? null,
+      })) ?? [];
+
     const supabase = getSupabaseAdmin();
 
-    if (providerMessageId) {
-      const { data: existingMessage, error: existingMessageError } = await supabase
-        .from("ticket_messages")
-        .select("id")
-        .eq("provider_message_id", providerMessageId)
-        .maybeSingle();
+    const { data: existingMessage, error: existingMessageError } = await supabase
+      .from("ticket_messages")
+      .select("id")
+      .eq("provider_message_id", providerMessageId)
+      .maybeSingle();
 
-      if (existingMessageError) {
-        console.error("Failed checking duplicate provider_message_id", existingMessageError);
-        return NextResponse.json(
-          { error: "Failed checking duplicate inbound message." },
-          { status: 500 },
-        );
-      }
+    if (existingMessageError) {
+      console.error("Failed checking duplicate inbound message", existingMessageError);
+      return NextResponse.json(
+        { error: "Failed checking duplicate inbound message." },
+        { status: 500 },
+      );
+    }
 
-      if (existingMessage) {
-        return ok({
-          ok: true,
-          duplicate: true,
-        });
-      }
+    if (existingMessage) {
+      return ok({
+        ok: true,
+        duplicate: true,
+      });
     }
 
     if (routing.type === "new_ticket") {
@@ -286,9 +311,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        if (!existingTicket) {
-          break;
-        }
+        if (!existingTicket) break;
 
         publicThreadId = generatePublicThreadId();
       }
@@ -314,16 +337,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error: createMessageError } = await supabase.from("ticket_messages").insert({
-        ticket_id: createdTicket.id,
-        direction: "inbound",
-        sender_name: senderName,
-        sender_email: senderEmail,
-        body_text: bodyText,
-        body_html: bodyHtml,
-        provider_message_id: providerMessageId,
-        attachments_json: attachments,
-      });
+      const { error: createMessageError } = await supabase
+        .from("ticket_messages")
+        .insert({
+          ticket_id: createdTicket.id,
+          direction: "inbound",
+          sender_name: senderName,
+          sender_email: senderEmail,
+          body_text: bodyText,
+          body_html: bodyHtml,
+          provider_message_id: providerMessageId,
+          attachments_json: attachmentsJson,
+        });
 
       if (createMessageError) {
         console.error("Failed creating first ticket message", createMessageError);
@@ -345,7 +370,7 @@ export async function POST(request: NextRequest) {
       .from("tickets")
       .select("id, public_thread_id, status")
       .eq("public_thread_id", routing.publicThreadId)
-      .maybeSingle<TicketRow>();
+      .maybeSingle();
 
     if (ticketLookupError) {
       console.error("Failed finding existing ticket", ticketLookupError);
@@ -369,16 +394,20 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { error: insertReplyError } = await supabase.from("ticket_messages").insert({
-      ticket_id: ticket.id,
-      direction: "inbound",
-      sender_name: senderName,
-      sender_email: senderEmail,
-      body_text: bodyText,
-      body_html: bodyHtml,
-      provider_message_id: providerMessageId,
-      attachments_json: attachments,
-    });
+    const typedTicket = ticket as TicketRow;
+
+    const { error: insertReplyError } = await supabase
+      .from("ticket_messages")
+      .insert({
+        ticket_id: typedTicket.id,
+        direction: "inbound",
+        sender_name: senderName,
+        sender_email: senderEmail,
+        body_text: bodyText,
+        body_html: bodyHtml,
+        provider_message_id: providerMessageId,
+        attachments_json: attachmentsJson,
+      });
 
     if (insertReplyError) {
       console.error("Failed inserting inbound reply", insertReplyError);
@@ -388,7 +417,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const nextStatus = ticket.status === "closed" || ticket.status === "pending" ? "open" : ticket.status;
+    const nextStatus: TicketStatus =
+      typedTicket.status === "closed" || typedTicket.status === "pending"
+        ? "open"
+        : typedTicket.status;
 
     const { error: updateTicketError } = await supabase
       .from("tickets")
@@ -396,7 +428,7 @@ export async function POST(request: NextRequest) {
         status: nextStatus,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", ticket.id);
+      .eq("id", typedTicket.id);
 
     if (updateTicketError) {
       console.error("Failed updating ticket after inbound reply", updateTicketError);
@@ -409,8 +441,8 @@ export async function POST(request: NextRequest) {
     return ok({
       ok: true,
       action: "appended_to_ticket",
-      ticketId: ticket.id,
-      publicThreadId: ticket.public_thread_id,
+      ticketId: typedTicket.id,
+      publicThreadId: typedTicket.public_thread_id,
     });
   } catch (error) {
     console.error("Inbound email webhook failed", error);
