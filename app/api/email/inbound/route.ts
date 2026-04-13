@@ -510,13 +510,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const nextStatus: TicketStatus =
-      typedTicket.status === "closed" ? "open" : typedTicket.status;
-
     const { error: updateTicketError } = await supabase
       .from("support_tickets")
       .update({
-        status: nextStatus,
+        status: "open",
         updated_at: new Date().toISOString(),
       })
       .eq("id", typedTicket.id);
