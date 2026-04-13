@@ -6,7 +6,7 @@ import { Webhook } from "svix";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type TicketStatus = "open" | "pending" | "closed";
+type TicketStatus = "open" | "in_progress" | "closed";
 
 type TicketRow = {
   id: string;
@@ -187,8 +187,6 @@ export async function POST(request: NextRequest) {
 
     let verified: ResendReceivedEvent;
 
-    // TEMP: fall back to raw JSON parsing while debugging webhook signature issues.
-    // Once confirmed working, switch back to strict verification only.
     try {
       verified = verifyWebhookWithSvix(payload, request);
       console.log("Inbound email webhook signature verification: passed");
@@ -231,8 +229,7 @@ export async function POST(request: NextRequest) {
       verified.data.message_id?.trim() || verified.data.email_id.trim();
 
     // Resend's email.received webhook gives us routing metadata immediately.
-    // For MVP we store the envelope + subject now.
-    // Body retrieval can be added later if needed.
+    // For now we store envelope metadata. Body parsing can be added later.
     const bodyText = "";
     const bodyHtml = null;
 
@@ -273,7 +270,7 @@ export async function POST(request: NextRequest) {
 
       for (let i = 0; i < 5; i += 1) {
         const { data: existingTicket, error: existingTicketError } = await supabase
-          .from("tickets")
+          .from("support_tickets")
           .select("id")
           .eq("public_thread_id", publicThreadId)
           .maybeSingle();
@@ -292,14 +289,14 @@ export async function POST(request: NextRequest) {
       }
 
       const { data: createdTicket, error: createTicketError } = await supabase
-        .from("tickets")
+        .from("support_tickets")
         .insert({
           public_thread_id: publicThreadId,
-          customer_name: senderName,
-          customer_email: senderEmail,
+          name: senderName ?? senderEmail,
+          email: senderEmail,
           subject,
+          message: bodyText,
           status: "open",
-          source: "email",
         })
         .select("id, public_thread_id")
         .single();
@@ -342,7 +339,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data: ticket, error: ticketLookupError } = await supabase
-      .from("tickets")
+      .from("support_tickets")
       .select("id, public_thread_id, status")
       .eq("public_thread_id", routing.publicThreadId)
       .maybeSingle();
@@ -393,12 +390,10 @@ export async function POST(request: NextRequest) {
     }
 
     const nextStatus: TicketStatus =
-      typedTicket.status === "closed" || typedTicket.status === "pending"
-        ? "open"
-        : typedTicket.status;
+      typedTicket.status === "closed" ? "open" : typedTicket.status;
 
     const { error: updateTicketError } = await supabase
-      .from("tickets")
+      .from("support_tickets")
       .update({
         status: nextStatus,
         updated_at: new Date().toISOString(),
