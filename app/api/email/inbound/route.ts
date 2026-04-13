@@ -1,7 +1,7 @@
-import { Buffer } from "buffer";
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 import { Webhook } from "svix";
 
 export const runtime = "nodejs";
@@ -20,6 +20,7 @@ type ReceivedAttachmentMeta = {
   filename?: string;
   content_type?: string;
   size?: number;
+  download_url?: string;
 };
 
 type ResendReceivedEvent = {
@@ -45,6 +46,17 @@ type ResendReceivedEvent = {
   };
 };
 
+type ResendReceivedEmailResponse = {
+  text?: string | null;
+  html?: string | null;
+  subject?: string | null;
+  from?: string | null;
+  to?: string[] | null;
+  cc?: string[] | null;
+  bcc?: string[] | null;
+  attachments?: ReceivedAttachmentMeta[] | null;
+};
+
 function getEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -64,6 +76,10 @@ function getSupabaseAdmin() {
       },
     },
   );
+}
+
+function getResendClient() {
+  return new Resend(getEnv("RESEND_API_KEY"));
 }
 
 function normalizeEmail(email: string): string {
@@ -170,10 +186,6 @@ function verifyWebhookWithSvix(
   }) as ResendReceivedEvent;
 }
 
-function decodeBase64Payload(encoded: string): string {
-  return Buffer.from(encoded, "base64").toString("utf-8");
-}
-
 function trimQuotedReply(text: string): string {
   const normalized = text.replace(/\r\n/g, "\n");
 
@@ -207,76 +219,53 @@ function trimQuotedReply(text: string): string {
   return cleanedLines.join("\n").trim();
 }
 
-function extractMimeSection(
-  rawMessage: string,
-  contentTypePattern: RegExp,
-): string | null {
-  const normalized = rawMessage.replace(/\r\n/g, "\n");
-  const markerMatch = contentTypePattern.exec(normalized);
+async function fetchReceivedEmailContent(
+  emailId: string,
+): Promise<{ bodyText: string; bodyHtml: string | null }> {
+  try {
+    const resend = getResendClient();
+    const result = await resend.emails.receiving.get(emailId);
 
-  if (!markerMatch || typeof markerMatch.index !== "number") {
-    return null;
+    const data = (result as { data?: ResendReceivedEmailResponse; error?: unknown })
+      .data;
+
+    const rawText = (data?.text ?? "").trim();
+    const rawHtml = data?.html ?? null;
+
+    const bodyText = trimQuotedReply(rawText);
+
+    console.log("Received email API body fetch:", {
+      emailId,
+      hasText: Boolean(bodyText),
+      hasHtml: Boolean(rawHtml),
+      textPreview: bodyText.slice(0, 120),
+    });
+
+    return {
+      bodyText,
+      bodyHtml: rawHtml,
+    };
+  } catch (error) {
+    console.warn("Failed to fetch received email content from Resend API", {
+      emailId,
+      error,
+    });
+
+    return {
+      bodyText: "",
+      bodyHtml: null,
+    };
   }
-
-  const startSearchIndex = markerMatch.index + markerMatch[0].length;
-  const bodyStart = normalized.indexOf("\n\n", startSearchIndex);
-
-  if (bodyStart === -1) {
-    return null;
-  }
-
-  const contentStart = bodyStart + 2;
-  const boundaryIndex = normalized.indexOf("\n--", contentStart);
-  const content =
-    boundaryIndex === -1
-      ? normalized.slice(contentStart)
-      : normalized.slice(contentStart, boundaryIndex);
-
-  const trimmed = content.trim();
-  return trimmed || null;
 }
 
-function extractTextFromMime(rawMessage: string): {
-  bodyText: string;
-  bodyHtml: string | null;
-} {
-  let bodyText = "";
-  let bodyHtml: string | null = null;
-
-  bodyHtml = extractMimeSection(rawMessage, /Content-Type:\s*text\/html/i);
-
-  const plainTextSection = extractMimeSection(
-    rawMessage,
-    /Content-Type:\s*text\/plain/i,
-  );
-
-  if (plainTextSection) {
-    bodyText = plainTextSection;
-  }
-
-  if (!bodyText) {
-    const normalized = rawMessage.replace(/\r\n/g, "\n");
-    const firstBlankLineIndex = normalized.indexOf("\n\n");
-
-    if (firstBlankLineIndex !== -1) {
-      bodyText = normalized.slice(firstBlankLineIndex + 2).trim();
-    }
-  }
-
-  return {
-    bodyText: trimQuotedReply(bodyText),
-    bodyHtml,
-  };
-}
-
-function extractInboundBody(event: ResendReceivedEvent) {
+function extractFallbackInboundBody(event: ResendReceivedEvent) {
   const directText = (event.data.text ?? event.data.body ?? "").trim();
   const directHtml = event.data.html ?? null;
 
   if (directText || directHtml) {
     const cleanedText = trimQuotedReply(directText);
 
-    console.log("Inbound body extracted from direct fields:", {
+    console.log("Inbound body extracted from webhook fallback fields:", {
       hasText: Boolean(cleanedText),
       hasHtml: Boolean(directHtml),
       textPreview: cleanedText.slice(0, 120),
@@ -288,31 +277,11 @@ function extractInboundBody(event: ResendReceivedEvent) {
     };
   }
 
-  const rawMessage =
-    event.data.raw ||
-    event.data.raw_email ||
-    event.data.rawEmail ||
-    (event.data.payload ? decodeBase64Payload(event.data.payload) : null);
-
-  if (!rawMessage) {
-    console.warn("No raw email content found in webhook");
-    return { bodyText: "", bodyHtml: null };
-  }
-
-  try {
-    const { bodyText, bodyHtml } = extractTextFromMime(rawMessage);
-
-    console.log("Inbound body extracted from MIME payload:", {
-      hasText: Boolean(bodyText),
-      hasHtml: Boolean(bodyHtml),
-      textPreview: bodyText.slice(0, 120),
-    });
-
-    return { bodyText, bodyHtml };
-  } catch (error) {
-    console.warn("Failed to parse inbound email body", error);
-    return { bodyText: "", bodyHtml: null };
-  }
+  console.warn("No body fields found in webhook fallback payload");
+  return {
+    bodyText: "",
+    bodyHtml: null,
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -344,9 +313,7 @@ export async function POST(request: NextRequest) {
       hasText: Boolean(verified.data?.text),
       hasHtml: Boolean(verified.data?.html),
       hasBody: Boolean(verified.data?.body),
-      hasRaw: Boolean(verified.data?.raw),
-      hasRawEmail: Boolean(verified.data?.raw_email || verified.data?.rawEmail),
-      hasPayload: Boolean(verified.data?.payload),
+      attachmentsCount: verified.data?.attachments?.length ?? 0,
     });
 
     if (verified.type !== "email.received") {
@@ -369,11 +336,16 @@ export async function POST(request: NextRequest) {
     }
 
     const senderName = extractDisplayName(verified.data.from);
-    const subject = (verified.data.subject ?? "(No subject)").trim() || "(No subject)";
+    const subject =
+      (verified.data.subject ?? "(No subject)").trim() || "(No subject)";
     const providerMessageId =
       (verified.data.message_id ?? verified.data.email_id).trim();
 
-    const { bodyText, bodyHtml } = extractInboundBody(verified);
+    const apiContent = await fetchReceivedEmailContent(verified.data.email_id.trim());
+    const fallbackContent = extractFallbackInboundBody(verified);
+
+    const bodyText = apiContent.bodyText || fallbackContent.bodyText;
+    const bodyHtml = apiContent.bodyHtml || fallbackContent.bodyHtml;
 
     const attachmentsJson = (verified.data.attachments ?? []).map(
       (attachment: ReceivedAttachmentMeta) => ({
@@ -381,6 +353,7 @@ export async function POST(request: NextRequest) {
         filename: attachment.filename ?? null,
         contentType: attachment.content_type ?? null,
         size: attachment.size ?? null,
+        downloadUrl: attachment.download_url ?? null,
       }),
     );
 
@@ -555,6 +528,7 @@ export async function POST(request: NextRequest) {
       action: "appended_to_ticket",
       ticketId: typedTicket.id,
       publicThreadId: typedTicket.public_thread_id,
+      capturedBody: Boolean(bodyText),
     });
   } catch (err) {
     console.error("Inbound email webhook failed", err);
