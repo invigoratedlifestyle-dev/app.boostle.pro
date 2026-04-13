@@ -34,12 +34,10 @@ type ResendReceivedEvent = {
     subject?: string;
     message_id?: string;
     attachments?: ReceivedAttachmentMeta[];
+    text?: string | null;
+    html?: string | null;
+    body?: string | null;
   };
-};
-
-type ResendEmailDetailResponse = {
-  text?: string | null;
-  html?: string | null;
 };
 
 function getEnv(name: string): string {
@@ -178,40 +176,18 @@ function verifyWebhookWithSvix(
   }) as ResendReceivedEvent;
 }
 
-async function fetchInboundEmailBody(emailId: string) {
-  let bodyText = "";
-  let bodyHtml: string | null = null;
+function extractInboundBody(event: ResendReceivedEvent) {
+  const rawText = event.data.text ?? event.data.body ?? "";
+  const rawHtml = event.data.html ?? null;
 
-  try {
-    const resendApiKey = getEnv("RESEND_API_KEY");
+  const bodyText = rawText.trim();
+  const bodyHtml = rawHtml;
 
-    const emailRes = await fetch(`https://api.resend.com/emails/${emailId}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-      },
-      cache: "no-store",
-    });
-
-    if (!emailRes.ok) {
-      const errorText = await emailRes.text();
-      console.warn("Failed to fetch email body from Resend:", errorText);
-      return { bodyText, bodyHtml };
-    }
-
-    const emailData = (await emailRes.json()) as ResendEmailDetailResponse;
-
-    bodyText = (emailData.text ?? "").trim();
-    bodyHtml = emailData.html ?? null;
-
-    console.log("Fetched inbound email body preview:", {
-      emailId,
-      textPreview: bodyText.slice(0, 120),
-      hasHtml: Boolean(bodyHtml),
-    });
-  } catch (error) {
-    console.warn("Error fetching email body from Resend:", error);
-  }
+  console.log("Inbound body extracted:", {
+    hasText: Boolean(bodyText),
+    hasHtml: Boolean(bodyHtml),
+    textPreview: bodyText.slice(0, 120),
+  });
 
   return { bodyText, bodyHtml };
 }
@@ -271,9 +247,7 @@ export async function POST(request: NextRequest) {
     const providerMessageId =
       verified.data.message_id?.trim() || verified.data.email_id.trim();
 
-    const { bodyText, bodyHtml } = await fetchInboundEmailBody(
-      verified.data.email_id.trim(),
-    );
+    const { bodyText, bodyHtml } = extractInboundBody(verified);
 
     const attachmentsJson = (verified.data.attachments ?? []).map(
       (attachment: ReceivedAttachmentMeta) => ({
