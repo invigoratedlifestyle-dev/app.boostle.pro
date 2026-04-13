@@ -46,14 +46,14 @@ export default function HomePage() {
   });
 
   const canSubmit = useMemo(() => {
-    return (
+    return Boolean(
       form.name.trim() &&
-      form.email.trim() &&
-      form.storeUrl.trim() &&
-      form.appName.trim() &&
-      form.subject.trim() &&
-      form.category.trim() &&
-      form.message.trim()
+        form.email.trim() &&
+        form.storeUrl.trim() &&
+        form.appName.trim() &&
+        form.subject.trim() &&
+        form.category.trim() &&
+        form.message.trim(),
     );
   }, [form]);
 
@@ -132,104 +132,322 @@ export default function HomePage() {
   }
 
   return (
-    <main className="page-shell">
-      <div className="container">
-        <section className="hero">
-          <div className="card hero-copy">
-            <div className="eyebrow">Boostle Support</div>
+    <main
+      style={{
+        minHeight: "100vh",
+        background:
+          "linear-gradient(180deg, #f8fbff 0%, #eef4ff 45%, #f8fafc 100%)",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: "0 auto",
+          padding: "56px 20px 72px",
+        }}
+      >
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.1fr) minmax(360px, 0.9fr)",
+            gap: 24,
+            alignItems: "start",
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid #dbe7f5",
+              borderRadius: 24,
+              padding: 32,
+              boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 12px",
+                borderRadius: 999,
+                background: "#eef4ff",
+                color: "#2563eb",
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "0.02em",
+                marginBottom: 18,
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 999,
+                  background: "#2563eb",
+                  display: "inline-block",
+                }}
+              />
+              Boostle Support
+            </div>
 
-            <h1>Need help with a Boostle app?</h1>
+            <h1
+              style={{
+                margin: "0 0 16px",
+                fontSize: "clamp(2rem, 4vw, 3rem)",
+                lineHeight: 1.05,
+                letterSpacing: "-0.04em",
+                color: "#0f172a",
+              }}
+            >
+              Need help with a Boostle app?
+            </h1>
 
-            <p className="lead">
+            <p
+              style={{
+                margin: 0,
+                fontSize: 18,
+                lineHeight: 1.7,
+                color: "#334155",
+                maxWidth: 720,
+              }}
+            >
               Submit a support request and we’ll help with setup, billing,
               troubleshooting, and general app questions.
             </p>
 
-            <ul className="trust-list">
-              <li>
-                <span className="trust-dot" />
-                <span>Shopify-focused support for Boostle apps</span>
-              </li>
-              <li>
-                <span className="trust-dot" />
-                <span>Help with installation, theme placement, and billing</span>
-              </li>
-              <li>
-                <span className="trust-dot" />
-                <span>Simple support flow while the full ticket system is built</span>
-              </li>
-            </ul>
+            <div
+              style={{
+                display: "grid",
+                gap: 14,
+                marginTop: 28,
+              }}
+            >
+              {[
+                "Shopify-focused support for Boostle apps",
+                "Help with installation, theme placement, and billing",
+                "Simple support flow while the full ticket system is built",
+              ].map((item) => (
+                <div
+                  key={item}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 12,
+                    color: "#0f172a",
+                    fontSize: 17,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: "#2563eb",
+                      marginTop: 9,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
 
-            <div className="support-email">
-              <strong>Email support:</strong>{" "}
-              <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+            <div
+              style={{
+                marginTop: 30,
+                paddingTop: 22,
+                borderTop: "1px solid #e2e8f0",
+                fontSize: 16,
+                color: "#334155",
+              }}
+            >
+              <strong style={{ color: "#0f172a" }}>Email support:</strong>{" "}
+              <a
+                href={`mailto:${supportEmail}`}
+                style={{
+                  color: "#2563eb",
+                  textDecoration: "none",
+                  fontWeight: 600,
+                }}
+              >
+                {supportEmail}
+              </a>
             </div>
           </div>
 
-          <div className="card form-card">
-            <h2>Submit a support request</h2>
-            <p>
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid #dbe7f5",
+              borderRadius: 24,
+              padding: 32,
+              boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 12px",
+                fontSize: 36,
+                lineHeight: 1.08,
+                letterSpacing: "-0.04em",
+                color: "#0f172a",
+              }}
+            >
+              Submit a support request
+            </h2>
+
+            <p
+              style={{
+                margin: "0 0 24px",
+                fontSize: 16,
+                lineHeight: 1.65,
+                color: "#475569",
+              }}
+            >
               Tell us what’s happening and include as much detail as possible so
               we can help faster.
             </p>
 
-            <form onSubmit={handleSubmit} noValidate>
-              <div className="form-grid">
-                <div className="field">
-                  <label className="label" htmlFor="name">
+            <form
+              onSubmit={handleSubmit}
+              noValidate
+              style={{ display: "grid", gap: 18 }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 16,
+                }}
+              >
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label
+                    htmlFor="name"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     Name
                   </label>
                   <input
                     id="name"
-                    className="input"
                     type="text"
                     value={form.name}
                     onChange={(e) => updateField("name", e.target.value)}
                     placeholder="Your name"
                     required
+                    style={{
+                      width: "100%",
+                      height: 48,
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "0 14px",
+                      font: "inherit",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   />
                 </div>
 
-                <div className="field">
-                  <label className="label" htmlFor="email">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label
+                    htmlFor="email"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     Email
                   </label>
                   <input
                     id="email"
-                    className="input"
                     type="email"
                     value={form.email}
                     onChange={(e) => updateField("email", e.target.value)}
                     placeholder="you@store.com"
                     required
+                    style={{
+                      width: "100%",
+                      height: 48,
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "0 14px",
+                      font: "inherit",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   />
                 </div>
 
-                <div className="field">
-                  <label className="label" htmlFor="storeUrl">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label
+                    htmlFor="storeUrl"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     Shopify store URL
                   </label>
                   <input
                     id="storeUrl"
-                    className="input"
                     type="url"
                     value={form.storeUrl}
                     onChange={(e) => updateField("storeUrl", e.target.value)}
                     placeholder="https://your-store.myshopify.com"
                     required
+                    style={{
+                      width: "100%",
+                      height: 48,
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "0 14px",
+                      font: "inherit",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   />
                 </div>
 
-                <div className="field">
-                  <label className="label" htmlFor="appName">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label
+                    htmlFor="appName"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     App
                   </label>
                   <select
                     id="appName"
-                    className="select"
                     value={form.appName}
                     onChange={(e) => updateField("appName", e.target.value)}
                     required
+                    style={{
+                      width: "100%",
+                      height: 48,
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "0 14px",
+                      font: "inherit",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   >
                     <option value="Boostle: Labels">Boostle: Labels</option>
                     <option value="Boostle Support">Boostle Support</option>
@@ -237,31 +455,67 @@ export default function HomePage() {
                   </select>
                 </div>
 
-                <div className="field">
-                  <label className="label" htmlFor="subject">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label
+                    htmlFor="subject"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     Subject
                   </label>
                   <input
                     id="subject"
-                    className="input"
                     type="text"
                     value={form.subject}
                     onChange={(e) => updateField("subject", e.target.value)}
                     placeholder="Short summary of the issue"
                     required
+                    style={{
+                      width: "100%",
+                      height: 48,
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "0 14px",
+                      font: "inherit",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   />
                 </div>
 
-                <div className="field">
-                  <label className="label" htmlFor="category">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label
+                    htmlFor="category"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     Category
                   </label>
                   <select
                     id="category"
-                    className="select"
                     value={form.category}
                     onChange={(e) => updateField("category", e.target.value)}
                     required
+                    style={{
+                      width: "100%",
+                      height: 48,
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "0 14px",
+                      font: "inherit",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   >
                     <option value="Installation">Installation</option>
                     <option value="Billing">Billing</option>
@@ -272,48 +526,114 @@ export default function HomePage() {
                   </select>
                 </div>
 
-                <div className="field full">
-                  <label className="label" htmlFor="message">
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                    gridColumn: "1 / -1",
+                  }}
+                >
+                  <label
+                    htmlFor="message"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#0f172a",
+                    }}
+                  >
                     Message
                   </label>
                   <textarea
                     id="message"
-                    className="textarea"
                     value={form.message}
                     onChange={(e) => updateField("message", e.target.value)}
                     placeholder="Describe the issue, what you expected, and what happened instead."
                     required
+                    style={{
+                      width: "100%",
+                      minHeight: 160,
+                      resize: "vertical",
+                      borderRadius: 14,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      padding: "14px",
+                      font: "inherit",
+                      lineHeight: 1.6,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
                   />
                 </div>
               </div>
 
-              <div className="form-actions">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  flexWrap: "wrap",
+                  marginTop: 4,
+                }}
+              >
                 <button
                   type="submit"
-                  className="button button-primary"
                   disabled={submitting || !canSubmit}
+                  style={{
+                    appearance: "none",
+                    border: 0,
+                    cursor: submitting || !canSubmit ? "not-allowed" : "pointer",
+                    borderRadius: 14,
+                    padding: "14px 18px",
+                    fontWeight: 700,
+                    background:
+                      submitting || !canSubmit ? "#cbd5e1" : "#2563eb",
+                    color: "#ffffff",
+                    font: "inherit",
+                    opacity: submitting || !canSubmit ? 0.8 : 1,
+                  }}
                 >
                   {submitting ? "Submitting..." : "Submit request"}
                 </button>
 
                 {status.message ? (
                   <span
-                    className={`status-text ${
-                      status.type === "error"
-                        ? "status-error"
-                        : status.type === "success"
-                          ? "status-success"
-                          : ""
-                    }`}
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color:
+                        status.type === "error"
+                          ? "#b91c1c"
+                          : status.type === "success"
+                            ? "#15803d"
+                            : "#475569",
+                    }}
                   >
                     {status.message}
                   </span>
                 ) : null}
               </div>
 
-              <div className="footer-note">
+              <div
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  color: "#475569",
+                  paddingTop: 6,
+                }}
+              >
                 You can also contact us directly at{" "}
-                <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
+                <a
+                  href={`mailto:${supportEmail}`}
+                  style={{
+                    color: "#2563eb",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                  }}
+                >
+                  {supportEmail}
+                </a>
+                .
               </div>
             </form>
           </div>
