@@ -187,19 +187,22 @@ function verifyWebhookWithSvix(
 }
 
 function trimQuotedReply(text: string): string {
+  if (!text) return "";
+
   const normalized = text.replace(/\r\n/g, "\n");
 
-  const cutPatterns = [
-    /\nOn .+wrote:/i,
-    /\nFrom:\s.+/i,
-    /\nSent:\s.+/i,
-    /\nTo:\s.+/i,
-    /\nSubject:\s.+/i,
+  const patterns = [
+    /\nOn .* wrote:/i,
+    /\nFrom: .*/i,
+    /\nSent: .*/i,
+    /\nTo: .*/i,
+    /\nSubject: .*/i,
+    /\n---+.*/i,
   ];
 
   let trimmed = normalized;
 
-  for (const pattern of cutPatterns) {
+  for (const pattern of patterns) {
     const match = pattern.exec(trimmed);
     if (match && typeof match.index === "number") {
       trimmed = trimmed.slice(0, match.index);
@@ -207,16 +210,19 @@ function trimQuotedReply(text: string): string {
   }
 
   const lines = trimmed.split("\n");
-  const cleanedLines: string[] = [];
+  const cleanLines: string[] = [];
 
   for (const line of lines) {
-    if (line.trim().startsWith(">")) {
-      break;
+    const currentLine = line.trim();
+
+    if (currentLine.startsWith(">") || currentLine.startsWith("|")) {
+      continue;
     }
-    cleanedLines.push(line);
+
+    cleanLines.push(line);
   }
 
-  return cleanedLines.join("\n").trim();
+  return cleanLines.join("\n").trim();
 }
 
 async function fetchReceivedEmailContent(
