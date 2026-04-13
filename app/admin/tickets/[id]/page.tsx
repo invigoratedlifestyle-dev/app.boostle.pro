@@ -94,31 +94,35 @@ function getStatusLabel(status: TicketStatus) {
 function cleanQuotedReply(text: string | null | undefined) {
   if (!text) return "";
 
-  const normalized = text.replace(/\r\n/g, "\n");
+  const normalized = text.replace(/\r\n/g, "\n").trim();
 
-  const patterns = [
-    /\nOn .* wrote:/i,
-    /\nFrom: .*/i,
-    /\nSent: .*/i,
-    /\nTo: .*/i,
-    /\nSubject: .*/i,
-    /\n---+.*/i,
-  ];
+  if (!normalized) return "";
 
-  let trimmed = normalized;
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(trimmed);
-    if (match && typeof match.index === "number") {
-      trimmed = trimmed.slice(0, match.index);
-    }
-  }
-
-  const lines = trimmed.split("\n");
+  const lines = normalized.split("\n");
   const cleanLines: string[] = [];
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
     const currentLine = line.trim();
+    const nextLine = (lines[i + 1] ?? "").trim();
+
+    const isQuoteHeaderStart =
+      /^On .+<.+@.+>$/.test(currentLine) ||
+      /^On .+wrote:$/i.test(currentLine) ||
+      /^From:\s.+/i.test(currentLine) ||
+      /^Sent:\s.+/i.test(currentLine) ||
+      /^To:\s.+/i.test(currentLine) ||
+      /^Subject:\s.+/i.test(currentLine) ||
+      /^-{-}.*Original Message.*-{-}$/i.test(currentLine) ||
+      /^_{2,}$/.test(currentLine) ||
+      /^-{3,}$/.test(currentLine);
+
+    const isTwoLineQuoteHeader =
+      /^On .+<.+@.+>$/.test(currentLine) && /^wrote:$/i.test(nextLine);
+
+    if (isQuoteHeaderStart || isTwoLineQuoteHeader) {
+      break;
+    }
 
     if (currentLine.startsWith(">") || currentLine.startsWith("|")) {
       continue;
