@@ -6,6 +6,11 @@ import { createClient } from "@supabase/supabase-js";
 
 type TicketStatus = "open" | "in_progress" | "closed";
 
+type SupportTicketRecord = {
+  id: string;
+  public_thread_id: string | null;
+};
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -24,6 +29,10 @@ function getSupabaseAdmin() {
 
 function isTicketStatus(value: string): value is TicketStatus {
   return value === "open" || value === "in_progress" || value === "closed";
+}
+
+function buildReplySubject(subject: string) {
+  return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
 }
 
 export async function updateTicketStatusAction(formData: FormData) {
@@ -73,6 +82,26 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error("Missing SUPPORT_FROM_EMAIL or SUPPORT_AUTO_REPLY_FROM_EMAIL.");
   }
 
+  const supabase = getSupabaseAdmin();
+
+  // ✅ Fetch ticket to get public_thread_id
+  const { data: ticket, error: ticketError } = await supabase
+    .from("support_tickets")
+    .select("id, public_thread_id")
+    .eq("id", ticketId)
+    .single<SupportTicketRecord>();
+
+  if (ticketError) {
+    throw new Error(`Failed to load ticket: ${ticketError.message}`);
+  }
+
+  if (!ticket?.public_thread_id) {
+    throw new Error("Ticket is missing public_thread_id.");
+  }
+
+  // ✅ This is the CRITICAL fix
+  const replyToEmail = `reply+${ticket.public_thread_id}@boostle.pro`;
+
   const emailResponse = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -82,8 +111,9 @@ export async function sendTicketReplyAction(formData: FormData) {
     body: JSON.stringify({
       from: supportFromEmail,
       to: [toEmail],
-      subject: `Re: ${subject}`,
+      subject: buildReplySubject(subject),
       text: replyBody,
+      reply_to: replyToEmail, // 🔥 KEY FIX
     }),
     cache: "no-store",
   });
@@ -93,8 +123,7 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error(`Resend error: ${errorText}`);
   }
 
-  const supabase = getSupabaseAdmin();
-
+  // Update ticket status
   const { error: statusError } = await supabase
     .from("support_tickets")
     .update({ status: "in_progress" })
@@ -104,6 +133,7 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error(statusError.message);
   }
 
+  // Save reply in history
   const { error: replyInsertError } = await supabase
     .from("support_ticket_replies")
     .insert({
