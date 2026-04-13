@@ -63,6 +63,27 @@ function generatePublicThreadId(length = 8) {
     .slice(0, length);
 }
 
+function extractEmailAddress(input: string) {
+  const trimmed = input.trim();
+  const match = trimmed.match(/<([^>]+)>/);
+
+  if (match?.[1]) {
+    return match[1].trim();
+  }
+
+  return trimmed;
+}
+
+function buildFromHeader(input: string) {
+  const trimmed = input.trim();
+
+  if (trimmed.includes("<") && trimmed.includes(">")) {
+    return trimmed;
+  }
+
+  return `Boostle Support <${trimmed}>`;
+}
+
 async function ensurePublicThreadId(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   ticketId: string,
@@ -148,14 +169,14 @@ export async function sendTicketReplyAction(formData: FormData) {
   }
 
   const resendApiKey = process.env.RESEND_API_KEY;
-  const supportFromEmail =
+  const supportFromValue =
     process.env.SUPPORT_FROM_EMAIL || process.env.SUPPORT_AUTO_REPLY_FROM_EMAIL;
 
   if (!resendApiKey) {
     throw new Error("Missing RESEND_API_KEY.");
   }
 
-  if (!supportFromEmail) {
+  if (!supportFromValue) {
     throw new Error("Missing SUPPORT_FROM_EMAIL or SUPPORT_AUTO_REPLY_FROM_EMAIL.");
   }
 
@@ -185,6 +206,8 @@ export async function sendTicketReplyAction(formData: FormData) {
     ticket.public_thread_id,
   );
 
+  const supportFromEmail = extractEmailAddress(supportFromValue);
+  const fromHeader = buildFromHeader(supportFromValue);
   const replyToEmail = `reply+${publicThreadId}@boostle.pro`;
   const outboundSubject = buildReplySubject(ticket.subject || "(No subject)");
   const replyHtml = buildReplyHtml(replyBody);
@@ -196,7 +219,7 @@ export async function sendTicketReplyAction(formData: FormData) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: `Boostle Support <${supportFromEmail}>`,
+      from: fromHeader,
       to: [ticket.email],
       subject: outboundSubject,
       text: replyBody,
@@ -241,6 +264,7 @@ export async function sendTicketReplyAction(formData: FormData) {
     .update({
       status: "in_progress",
       updated_at: new Date().toISOString(),
+      needs_attention: false,
     })
     .eq("id", ticketId);
 
