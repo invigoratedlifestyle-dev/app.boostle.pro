@@ -14,6 +14,7 @@ type Ticket = {
   message: string;
   status: TicketStatus;
   created_at: string;
+  needs_attention: boolean;
 };
 
 type SearchParams = {
@@ -125,7 +126,7 @@ export default async function AdminDashboardPage({
 
   let ticketsQuery = supabase
     .from("support_tickets")
-    .select("id, name, email, subject, message, status, created_at");
+    .select("id, name, email, subject, message, status, created_at, needs_attention");
 
   if (status !== "all") {
     ticketsQuery = ticketsQuery.eq("status", status);

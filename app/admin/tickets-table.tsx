@@ -14,6 +14,7 @@ type Ticket = {
   message: string;
   status: TicketStatus;
   created_at: string;
+  needs_attention: boolean;
 };
 
 type TicketsTableProps = {
@@ -259,14 +260,38 @@ export default function TicketsTable({
                               flexWrap: "wrap",
                             }}
                           >
-                            <strong
+                            <div
                               style={{
-                                fontSize: 18,
-                                lineHeight: 1.2,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
                               }}
                             >
-                              {ticket.subject}
-                            </strong>
+                              {ticket.needs_attention ? (
+                                <span
+                                  aria-label="Needs attention"
+                                  title="Needs attention"
+                                  style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: "50%",
+                                    background: "#ef4444",
+                                    display: "inline-block",
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              ) : null}
+
+                              <strong
+                                style={{
+                                  fontSize: 18,
+                                  lineHeight: 1.2,
+                                  fontWeight: ticket.needs_attention ? 800 : 600,
+                                }}
+                              >
+                                {ticket.subject}
+                              </strong>
+                            </div>
 
                             <span
                               style={{
