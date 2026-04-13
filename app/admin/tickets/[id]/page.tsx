@@ -91,6 +91,45 @@ function getStatusLabel(status: TicketStatus) {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
+function cleanQuotedReply(text: string | null | undefined) {
+  if (!text) return "";
+
+  const normalized = text.replace(/\r\n/g, "\n");
+
+  const patterns = [
+    /\nOn .* wrote:/i,
+    /\nFrom: .*/i,
+    /\nSent: .*/i,
+    /\nTo: .*/i,
+    /\nSubject: .*/i,
+    /\n---+.*/i,
+  ];
+
+  let trimmed = normalized;
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(trimmed);
+    if (match && typeof match.index === "number") {
+      trimmed = trimmed.slice(0, match.index);
+    }
+  }
+
+  const lines = trimmed.split("\n");
+  const cleanLines: string[] = [];
+
+  for (const line of lines) {
+    const currentLine = line.trim();
+
+    if (currentLine.startsWith(">") || currentLine.startsWith("|")) {
+      continue;
+    }
+
+    cleanLines.push(line);
+  }
+
+  return cleanLines.join("\n").trim();
+}
+
 export default async function AdminTicketDetailPage({
   params,
   searchParams,
@@ -155,7 +194,7 @@ export default async function AdminTicketDetailPage({
       id: message.id,
       type: "customer_reply" as const,
       created_at: message.created_at,
-      body: message.body_text,
+      body: cleanQuotedReply(message.body_text),
       sender_name: message.sender_name,
       sender_email: message.sender_email,
     })),
