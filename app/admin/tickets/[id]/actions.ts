@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -8,6 +9,8 @@ type TicketStatus = "open" | "in_progress" | "closed";
 
 type SupportTicketRecord = {
   id: string;
+  subject: string;
+  email: string;
   public_thread_id: string | null;
 };
 
@@ -35,6 +38,79 @@ function buildReplySubject(subject: string) {
   return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function buildReplyHtml(message: string) {
+  return `
+    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">
+      <p>${escapeHtml(message).replace(/\n/g, "<br />")}</p>
+    </div>
+  `.trim();
+}
+
+function generatePublicThreadId(length = 8) {
+  return randomBytes(16)
+    .toString("base64url")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, length);
+}
+
+async function ensurePublicThreadId(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  ticketId: string,
+  existingPublicThreadId: string | null,
+) {
+  if (existingPublicThreadId) {
+    return existingPublicThreadId;
+  }
+
+  let publicThreadId = generatePublicThreadId();
+
+  for (let i = 0; i < 5; i += 1) {
+    const { data: existingTicket, error: existingTicketError } = await supabase
+      .from("support_tickets")
+      .select("id")
+      .eq("public_thread_id", publicThreadId)
+      .maybeSingle();
+
+    if (existingTicketError) {
+      throw new Error(
+        `Failed checking public_thread_id uniqueness: ${existingTicketError.message}`,
+      );
+    }
+
+    if (!existingTicket) {
+      const { error: updateError } = await supabase
+        .from("support_tickets")
+        .update({
+          public_thread_id: publicThreadId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", ticketId);
+
+      if (updateError) {
+        throw new Error(
+          `Failed to generate public_thread_id: ${updateError.message}`,
+        );
+      }
+
+      return publicThreadId;
+    }
+
+    publicThreadId = generatePublicThreadId();
+  }
+
+  throw new Error("Failed to generate a unique public_thread_id.");
+}
+
 export async function updateTicketStatusAction(formData: FormData) {
   const ticketId = String(formData.get("ticketId") ?? "");
   const status = String(formData.get("status") ?? "");
@@ -48,7 +124,10 @@ export async function updateTicketStatusAction(formData: FormData) {
 
   const { error } = await supabase
     .from("support_tickets")
-    .update({ status })
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", ticketId);
 
   if (error) {
@@ -61,12 +140,10 @@ export async function updateTicketStatusAction(formData: FormData) {
 }
 
 export async function sendTicketReplyAction(formData: FormData) {
-  const ticketId = String(formData.get("ticketId") ?? "");
-  const toEmail = String(formData.get("toEmail") ?? "").trim();
-  const subject = String(formData.get("subject") ?? "").trim();
+  const ticketId = String(formData.get("ticketId") ?? "").trim();
   const replyBody = String(formData.get("replyBody") ?? "").trim();
 
-  if (!ticketId || !toEmail || !subject || !replyBody) {
+  if (!ticketId || !replyBody) {
     throw new Error("Missing required reply fields.");
   }
 
@@ -84,10 +161,9 @@ export async function sendTicketReplyAction(formData: FormData) {
 
   const supabase = getSupabaseAdmin();
 
-  // ✅ Fetch ticket to get public_thread_id
   const { data: ticket, error: ticketError } = await supabase
     .from("support_tickets")
-    .select("id, public_thread_id")
+    .select("id, subject, email, public_thread_id")
     .eq("id", ticketId)
     .single<SupportTicketRecord>();
 
@@ -95,12 +171,23 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error(`Failed to load ticket: ${ticketError.message}`);
   }
 
-  if (!ticket?.public_thread_id) {
-    throw new Error("Ticket is missing public_thread_id.");
+  if (!ticket) {
+    throw new Error("Ticket not found.");
   }
 
-  // ✅ This is the CRITICAL fix
-  const replyToEmail = `reply+${ticket.public_thread_id}@boostle.pro`;
+  if (!ticket.email) {
+    throw new Error("Ticket is missing customer email.");
+  }
+
+  const publicThreadId = await ensurePublicThreadId(
+    supabase,
+    ticketId,
+    ticket.public_thread_id,
+  );
+
+  const replyToEmail = `reply+${publicThreadId}@boostle.pro`;
+  const outboundSubject = buildReplySubject(ticket.subject || "(No subject)");
+  const replyHtml = buildReplyHtml(replyBody);
 
   const emailResponse = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -109,11 +196,12 @@ export async function sendTicketReplyAction(formData: FormData) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: supportFromEmail,
-      to: [toEmail],
-      subject: buildReplySubject(subject),
+      from: `Boostle Support <${supportFromEmail}>`,
+      to: [ticket.email],
+      subject: outboundSubject,
       text: replyBody,
-      reply_to: replyToEmail, // 🔥 KEY FIX
+      html: replyHtml,
+      reply_to: replyToEmail,
     }),
     cache: "no-store",
   });
@@ -123,30 +211,41 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error(`Resend error: ${errorText}`);
   }
 
-  // Update ticket status
-  const { error: statusError } = await supabase
-    .from("support_tickets")
-    .update({ status: "in_progress" })
-    .eq("id", ticketId);
+  const emailJson = (await emailResponse.json()) as {
+    id?: string;
+  };
 
-  if (statusError) {
-    throw new Error(statusError.message);
-  }
+  const providerMessageId = emailJson.id ?? null;
 
-  // Save reply in history
   const { error: replyInsertError } = await supabase
-    .from("support_ticket_replies")
+    .from("ticket_messages")
     .insert({
       ticket_id: ticketId,
-      body: replyBody,
-      sent_to: toEmail,
-      sent_by: supportFromEmail,
+      direction: "outbound",
+      sender_name: "Boostle Support",
+      sender_email: supportFromEmail,
+      body_text: replyBody,
+      body_html: replyHtml,
+      provider_message_id: providerMessageId,
+      attachments_json: [],
     });
 
   if (replyInsertError) {
     throw new Error(
       `Reply email sent, but saving reply history failed: ${replyInsertError.message}`,
     );
+  }
+
+  const { error: statusError } = await supabase
+    .from("support_tickets")
+    .update({
+      status: "in_progress",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ticketId);
+
+  if (statusError) {
+    throw new Error(statusError.message);
   }
 
   revalidatePath("/admin");
