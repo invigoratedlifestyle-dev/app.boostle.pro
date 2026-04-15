@@ -18,8 +18,14 @@ type SupportRequestBody = {
 
 type CreatedTicketRow = {
   id: string;
-  ticket_number?: number | null;
   public_thread_id?: string | null;
+};
+
+type SupportApiResponse = {
+  ok: boolean;
+  ticketId?: string;
+  ticketNumber?: number | null;
+  error?: string;
 };
 
 type SupabaseLikeError = {
@@ -278,9 +284,19 @@ function buildTicketSummaryHtml(input: {
 function getMissingColumnFromError(error: unknown): string | null {
   const maybeError = error as SupabaseLikeError | null | undefined;
   const message = maybeError?.message || "";
-
   const match = message.match(/Could not find the '([^']+)' column/i);
   return match?.[1] ?? null;
+}
+
+function isUndefinedColumnError(error: unknown, columnName: string): boolean {
+  const maybeError = error as SupabaseLikeError | null | undefined;
+  const message = maybeError?.message || "";
+  const code = maybeError?.code || "";
+
+  return (
+    code === "42703" &&
+    message.toLowerCase().includes(`column tickets.${columnName}`.toLowerCase())
+  );
 }
 
 async function insertTicketWithSchemaFallback(input: {
@@ -294,7 +310,7 @@ async function insertTicketWithSchemaFallback(input: {
     const { data, error } = await supabase
       .from("tickets")
       .insert(values)
-      .select("id, ticket_number, public_thread_id")
+      .select("id, public_thread_id")
       .single<CreatedTicketRow>();
 
     if (!error && data) {
@@ -356,6 +372,30 @@ async function insertTicketMessageWithSchemaFallback(input: {
   };
 }
 
+async function tryReadTicketNumber(input: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  ticketId: string;
+}) {
+  const { supabase, ticketId } = input;
+
+  const { data, error } = await supabase
+    .from("tickets")
+    .select("ticket_number")
+    .eq("id", ticketId)
+    .single<{ ticket_number?: number | null }>();
+
+  if (error) {
+    if (isUndefinedColumnError(error, "ticket_number")) {
+      return null;
+    }
+
+    console.warn("Could not read ticket_number", error);
+    return null;
+  }
+
+  return data?.ticket_number ?? null;
+}
+
 async function sendSupportNotificationEmail(input: {
   resend: Resend;
   to: string;
@@ -393,8 +433,8 @@ async function sendSupportNotificationEmail(input: {
     replyTo,
     subject: `[${ticketLabel}] ${subject}`,
     text: [
-      `New Boostle support request`,
-      ``,
+      "New Boostle support request",
+      "",
       `Ticket: ${ticketLabel}`,
       `Name: ${customerName}`,
       `Email: ${customerEmail}`,
@@ -402,8 +442,8 @@ async function sendSupportNotificationEmail(input: {
       `App: ${appName}`,
       `Category: ${category}`,
       `Subject: ${subject}`,
-      ``,
-      `Message:`,
+      "",
+      "Message:",
       message,
     ].join("\n"),
     html: `
@@ -494,7 +534,7 @@ export async function POST(request: NextRequest) {
     const message = sanitizeText(body.message);
 
     if (!name || !email || !storeUrl || !subject || !message) {
-      return NextResponse.json(
+      return NextResponse.json<SupportApiResponse>(
         {
           ok: false,
           error: "Please complete all required fields.",
@@ -504,7 +544,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isValidEmail(email)) {
-      return NextResponse.json(
+      return NextResponse.json<SupportApiResponse>(
         {
           ok: false,
           error: "Please enter a valid email address.",
@@ -514,7 +554,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isValidHttpUrl(storeUrl)) {
-      return NextResponse.json(
+      return NextResponse.json<SupportApiResponse>(
         {
           ok: false,
           error: "Please enter a valid Shopify store URL.",
@@ -537,7 +577,7 @@ export async function POST(request: NextRequest) {
       if (existingTicketError) {
         console.error("Failed checking public_thread_id uniqueness", existingTicketError);
 
-        return NextResponse.json(
+        return NextResponse.json<SupportApiResponse>(
           {
             ok: false,
             error: "Failed creating support ticket.",
@@ -572,7 +612,7 @@ export async function POST(request: NextRequest) {
     if (createTicketError || !createdTicket) {
       console.error("Failed creating ticket", createTicketError);
 
-      return NextResponse.json(
+      return NextResponse.json<SupportApiResponse>(
         {
           ok: false,
           error: "Failed creating support ticket.",
@@ -599,7 +639,7 @@ export async function POST(request: NextRequest) {
     if (createMessageError) {
       console.error("Failed creating ticket message", createMessageError);
 
-      return NextResponse.json(
+      return NextResponse.json<SupportApiResponse>(
         {
           ok: false,
           error: "Ticket created, but failed saving the message body.",
@@ -607,6 +647,11 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       );
     }
+
+    const ticketNumber = await tryReadTicketNumber({
+      supabase,
+      ticketId: createdTicket.id,
+    });
 
     const resend = new Resend(getEnv("RESEND_API_KEY"));
     const supportEmail =
@@ -619,8 +664,8 @@ export async function POST(request: NextRequest) {
       supportEmail,
     );
 
-    const ticketLabel = createdTicket.ticket_number
-      ? `Ticket #${createdTicket.ticket_number}`
+    const ticketLabel = ticketNumber
+      ? `Ticket #${ticketNumber}`
       : `Ticket ${createdTicket.public_thread_id || createdTicket.id}`;
 
     try {
@@ -661,15 +706,15 @@ export async function POST(request: NextRequest) {
       console.error("Failed sending customer confirmation email", error);
     }
 
-    return NextResponse.json({
+    return NextResponse.json<SupportApiResponse>({
       ok: true,
       ticketId: createdTicket.id,
-      ticketNumber: createdTicket.ticket_number ?? null,
+      ticketNumber,
     });
   } catch (error) {
     console.error("Support route error", error);
 
-    return NextResponse.json(
+    return NextResponse.json<SupportApiResponse>(
       {
         ok: false,
         error: "Something went wrong while submitting your request.",
