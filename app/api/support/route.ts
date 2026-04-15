@@ -16,22 +16,17 @@ type SupportRequestBody = {
   message?: string;
 };
 
-type TicketInsert = {
-  public_thread_id: string;
-  customer_name: string;
-  customer_email: string;
-  store_url: string;
-  app_name: string;
-  subject: string;
-  category: string;
-  status: "open";
-  source: "web";
-};
-
 type CreatedTicketRow = {
   id: string;
   ticket_number?: number | null;
   public_thread_id?: string | null;
+};
+
+type SupabaseLikeError = {
+  code?: string;
+  details?: string | null;
+  hint?: string | null;
+  message?: string | null;
 };
 
 function getEnv(name: string): string {
@@ -280,6 +275,87 @@ function buildTicketSummaryHtml(input: {
   `.trim();
 }
 
+function getMissingColumnFromError(error: unknown): string | null {
+  const maybeError = error as SupabaseLikeError | null | undefined;
+  const message = maybeError?.message || "";
+
+  const match = message.match(/Could not find the '([^']+)' column/i);
+  return match?.[1] ?? null;
+}
+
+async function insertTicketWithSchemaFallback(input: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  values: Record<string, unknown>;
+}) {
+  const { supabase } = input;
+  const values = { ...input.values };
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabase
+      .from("tickets")
+      .insert(values)
+      .select("id, ticket_number, public_thread_id")
+      .single<CreatedTicketRow>();
+
+    if (!error && data) {
+      return { data, error: null };
+    }
+
+    const missingColumn = getMissingColumnFromError(error);
+
+    if (!missingColumn || !(missingColumn in values)) {
+      return { data: null, error };
+    }
+
+    console.warn(
+      `tickets insert fallback: removing missing column "${missingColumn}" and retrying`,
+    );
+
+    delete values[missingColumn];
+  }
+
+  return {
+    data: null,
+    error: {
+      message: "Too many schema fallback attempts while creating ticket.",
+    } satisfies SupabaseLikeError,
+  };
+}
+
+async function insertTicketMessageWithSchemaFallback(input: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  values: Record<string, unknown>;
+}) {
+  const { supabase } = input;
+  const values = { ...input.values };
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { error } = await supabase.from("ticket_messages").insert(values);
+
+    if (!error) {
+      return { error: null };
+    }
+
+    const missingColumn = getMissingColumnFromError(error);
+
+    if (!missingColumn || !(missingColumn in values)) {
+      return { error };
+    }
+
+    console.warn(
+      `ticket_messages insert fallback: removing missing column "${missingColumn}" and retrying`,
+    );
+
+    delete values[missingColumn];
+  }
+
+  return {
+    error: {
+      message: "Too many schema fallback attempts while creating ticket message.",
+    } satisfies SupabaseLikeError,
+  };
+}
+
 async function sendSupportNotificationEmail(input: {
   resend: Resend;
   to: string;
@@ -412,12 +488,12 @@ export async function POST(request: NextRequest) {
     const name = sanitizeText(body.name);
     const email = normalizeEmail(sanitizeText(body.email));
     const storeUrl = sanitizeText(body.storeUrl);
-    const appName = sanitizeText(body.appName);
+    const appName = sanitizeText(body.appName) || "Boostle";
     const subject = sanitizeText(body.subject);
-    const category = sanitizeText(body.category);
+    const category = sanitizeText(body.category) || "General";
     const message = sanitizeText(body.message);
 
-    if (!name || !email || !storeUrl || !appName || !subject || !category || !message) {
+    if (!name || !email || !storeUrl || !subject || !message) {
       return NextResponse.json(
         {
           ok: false,
@@ -475,7 +551,7 @@ export async function POST(request: NextRequest) {
       publicThreadId = generatePublicThreadId();
     }
 
-    const ticketInsert: TicketInsert = {
+    const ticketInsertValues: Record<string, unknown> = {
       public_thread_id: publicThreadId,
       customer_name: name,
       customer_email: email,
@@ -487,11 +563,11 @@ export async function POST(request: NextRequest) {
       source: "web",
     };
 
-    const { data: createdTicket, error: createTicketError } = await supabase
-      .from("tickets")
-      .insert(ticketInsert)
-      .select("id, ticket_number, public_thread_id")
-      .single<CreatedTicketRow>();
+    const { data: createdTicket, error: createTicketError } =
+      await insertTicketWithSchemaFallback({
+        supabase,
+        values: ticketInsertValues,
+      });
 
     if (createTicketError || !createdTicket) {
       console.error("Failed creating ticket", createTicketError);
@@ -505,7 +581,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { error: createMessageError } = await supabase.from("ticket_messages").insert({
+    const ticketMessageValues: Record<string, unknown> = {
       ticket_id: createdTicket.id,
       source: "web",
       sender_type: "customer",
@@ -513,6 +589,11 @@ export async function POST(request: NextRequest) {
       sender_email: email,
       body_text: message,
       body_html: null,
+    };
+
+    const { error: createMessageError } = await insertTicketMessageWithSchemaFallback({
+      supabase,
+      values: ticketMessageValues,
     });
 
     if (createMessageError) {
@@ -578,8 +659,6 @@ export async function POST(request: NextRequest) {
       });
     } catch (error) {
       console.error("Failed sending customer confirmation email", error);
-      // Non-blocking on purpose:
-      // the ticket should still be created even if the confirmation email fails.
     }
 
     return NextResponse.json({
