@@ -35,6 +35,14 @@ type SupabaseLikeError = {
   message?: string | null;
 };
 
+type InsertTicketResult = {
+  tableName: string;
+  data: CreatedTicketRow | null;
+  error: SupabaseLikeError | null;
+};
+
+const TICKET_TABLE_CANDIDATES = ["support_tickets", "tickets"] as const;
+
 function getEnv(name: string): string {
   const value = process.env[name]?.trim();
 
@@ -88,6 +96,7 @@ function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
@@ -303,42 +312,158 @@ function isUndefinedColumnError(
   );
 }
 
-async function insertTicketWithSchemaFallback(input: {
+function isMissingRelationError(error: unknown, relationName: string): boolean {
+  const maybeError = error as SupabaseLikeError | null | undefined;
+  const code = maybeError?.code || "";
+  const message = (maybeError?.message || "").toLowerCase();
+
+  return (
+    code === "42P01" &&
+    (message.includes(`relation "${relationName.toLowerCase()}" does not exist`) ||
+      message.includes(`relation '${relationName.toLowerCase()}' does not exist`))
+  );
+}
+
+async function ensureUniquePublicThreadId(input: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
-  values: Record<string, unknown>;
+  tableName: string;
 }) {
-  const { supabase } = input;
+  const { supabase, tableName } = input;
+
+  let publicThreadId = generatePublicThreadId();
+
+  for (let i = 0; i < 5; i += 1) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("id")
+      .eq("public_thread_id", publicThreadId)
+      .maybeSingle();
+
+    if (error) {
+      const missingColumn = getMissingColumnFromError(error);
+
+      if (missingColumn === "public_thread_id") {
+        return generatePublicThreadId();
+      }
+
+      if (isMissingRelationError(error, tableName)) {
+        throw error;
+      }
+
+      console.warn(`Failed checking public_thread_id uniqueness on ${tableName}`, error);
+      return generatePublicThreadId();
+    }
+
+    if (!data) {
+      return publicThreadId;
+    }
+
+    publicThreadId = generatePublicThreadId();
+  }
+
+  return publicThreadId;
+}
+
+async function insertTicketIntoTable(input: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  tableName: string;
+  values: Record<string, unknown>;
+}): Promise<InsertTicketResult> {
+  const { supabase, tableName } = input;
   const values = { ...input.values };
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const { data, error } = await supabase
-      .from("tickets")
+      .from(tableName)
       .insert(values)
       .select("id, public_thread_id")
       .single<CreatedTicketRow>();
 
     if (!error && data) {
-      return { data, error: null };
+      return { tableName, data, error: null };
+    }
+
+    if (isMissingRelationError(error, tableName)) {
+      return {
+        tableName,
+        data: null,
+        error: error as SupabaseLikeError,
+      };
     }
 
     const missingColumn = getMissingColumnFromError(error);
 
-    if (!missingColumn || !(missingColumn in values)) {
-      return { data: null, error };
+    if (missingColumn && missingColumn in values) {
+      console.warn(
+        `${tableName} insert fallback: removing missing column "${missingColumn}" and retrying`,
+      );
+      delete values[missingColumn];
+      continue;
     }
 
-    console.warn(
-      `tickets insert fallback: removing missing column "${missingColumn}" and retrying`,
-    );
-
-    delete values[missingColumn];
+    return {
+      tableName,
+      data: null,
+      error: error as SupabaseLikeError,
+    };
   }
 
   return {
+    tableName,
     data: null,
     error: {
-      message: "Too many schema fallback attempts while creating ticket.",
-    } satisfies SupabaseLikeError,
+      message: `Too many schema fallback attempts while creating ticket in ${tableName}.`,
+    },
+  };
+}
+
+async function createTicketWithFallback(input: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  baseValues: Record<string, unknown>;
+}): Promise<InsertTicketResult> {
+  const { supabase, baseValues } = input;
+
+  let lastError: SupabaseLikeError | null = null;
+
+  for (const tableName of TICKET_TABLE_CANDIDATES) {
+    let publicThreadId = generatePublicThreadId();
+
+    try {
+      publicThreadId = await ensureUniquePublicThreadId({
+        supabase,
+        tableName,
+      });
+    } catch (error) {
+      if (isMissingRelationError(error, tableName)) {
+        lastError = error as SupabaseLikeError;
+        continue;
+      }
+    }
+
+    const result = await insertTicketIntoTable({
+      supabase,
+      tableName,
+      values: {
+        ...baseValues,
+        public_thread_id: publicThreadId,
+      },
+    });
+
+    if (result.data) {
+      return result;
+    }
+
+    lastError = result.error;
+
+    if (!result.error || !isMissingRelationError(result.error, tableName)) {
+      return result;
+    }
+  }
+
+  return {
+    tableName: TICKET_TABLE_CANDIDATES[0],
+    data: null,
+    error: lastError || { message: "Failed creating support ticket." },
   };
 }
 
@@ -366,7 +491,7 @@ async function insertTicketMessageWithSchemaFallback(input: {
       continue;
     }
 
-    return { error };
+    return { error: error as SupabaseLikeError };
   }
 
   return {
@@ -378,22 +503,27 @@ async function insertTicketMessageWithSchemaFallback(input: {
 
 async function tryReadTicketNumber(input: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
+  tableName: string;
   ticketId: string;
 }) {
-  const { supabase, ticketId } = input;
+  const { supabase, tableName, ticketId } = input;
 
   const { data, error } = await supabase
-    .from("tickets")
+    .from(tableName)
     .select("ticket_number")
     .eq("id", ticketId)
     .single<{ ticket_number?: number | null }>();
 
   if (error) {
-    if (isUndefinedColumnError(error, "tickets", "ticket_number")) {
+    if (isUndefinedColumnError(error, tableName, "ticket_number")) {
       return null;
     }
 
-    console.warn("Could not read ticket_number", error);
+    if (isMissingRelationError(error, tableName)) {
+      return null;
+    }
+
+    console.warn(`Could not read ticket_number from ${tableName}`, error);
     return null;
   }
 
@@ -569,34 +699,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
 
-    let publicThreadId = generatePublicThreadId();
-
-    for (let i = 0; i < 5; i += 1) {
-      const { data: existingTicket, error: existingTicketError } = await supabase
-        .from("tickets")
-        .select("id")
-        .eq("public_thread_id", publicThreadId)
-        .maybeSingle();
-
-      if (existingTicketError) {
-        console.error("Failed checking public_thread_id uniqueness", existingTicketError);
-
-        return NextResponse.json<SupportApiResponse>(
-          {
-            ok: false,
-            error: "Failed creating support ticket.",
-          },
-          { status: 500 },
-        );
-      }
-
-      if (!existingTicket) break;
-
-      publicThreadId = generatePublicThreadId();
-    }
-
-    const ticketInsertValues: Record<string, unknown> = {
-      public_thread_id: publicThreadId,
+    const baseTicketValues: Record<string, unknown> = {
       customer_name: name,
       customer_email: email,
       store_url: storeUrl,
@@ -607,11 +710,14 @@ export async function POST(request: NextRequest) {
       source: "web",
     };
 
-    const { data: createdTicket, error: createTicketError } =
-      await insertTicketWithSchemaFallback({
-        supabase,
-        values: ticketInsertValues,
-      });
+    const {
+      tableName: ticketTableName,
+      data: createdTicket,
+      error: createTicketError,
+    } = await createTicketWithFallback({
+      supabase,
+      baseValues: baseTicketValues,
+    });
 
     if (createTicketError || !createdTicket) {
       console.error("Failed creating ticket", createTicketError);
@@ -625,36 +731,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ticketMessageValues: Record<string, unknown> = {
-      ticket_id: createdTicket.id,
-      direction: "inbound",
-      source: "web",
-      sender_type: "customer",
-      sender_name: name,
-      sender_email: email,
-      body_text: message,
-      body_html: null,
-    };
+    if (ticketTableName === "support_tickets") {
+      const ticketMessageValues: Record<string, unknown> = {
+        ticket_id: createdTicket.id,
+        direction: "inbound",
+        source: "web",
+        sender_type: "customer",
+        sender_name: name,
+        sender_email: email,
+        body_text: message,
+        body_html: null,
+      };
 
-    const { error: createMessageError } = await insertTicketMessageWithSchemaFallback({
-      supabase,
-      values: ticketMessageValues,
-    });
+      const { error: createMessageError } =
+        await insertTicketMessageWithSchemaFallback({
+          supabase,
+          values: ticketMessageValues,
+        });
 
-    if (createMessageError) {
-      console.error("Failed creating ticket message", createMessageError);
+      if (createMessageError) {
+        console.error("Failed creating ticket message", createMessageError);
 
-      return NextResponse.json<SupportApiResponse>(
-        {
-          ok: false,
-          error: "Ticket created, but failed saving the message body.",
-        },
-        { status: 500 },
-      );
+        return NextResponse.json<SupportApiResponse>(
+          {
+            ok: false,
+            error: "Ticket created, but failed saving the message body.",
+          },
+          { status: 500 },
+        );
+      }
     }
 
     const ticketNumber = await tryReadTicketNumber({
       supabase,
+      tableName: ticketTableName,
       ticketId: createdTicket.id,
     });
 
