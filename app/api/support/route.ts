@@ -288,14 +288,18 @@ function getMissingColumnFromError(error: unknown): string | null {
   return match?.[1] ?? null;
 }
 
-function isUndefinedColumnError(error: unknown, columnName: string): boolean {
+function isUndefinedColumnError(
+  error: unknown,
+  tableName: string,
+  columnName: string,
+): boolean {
   const maybeError = error as SupabaseLikeError | null | undefined;
-  const message = maybeError?.message || "";
+  const message = (maybeError?.message || "").toLowerCase();
   const code = maybeError?.code || "";
 
   return (
     code === "42703" &&
-    message.toLowerCase().includes(`column tickets.${columnName}`.toLowerCase())
+    message.includes(`column ${tableName}.${columnName}`.toLowerCase())
   );
 }
 
@@ -354,15 +358,15 @@ async function insertTicketMessageWithSchemaFallback(input: {
 
     const missingColumn = getMissingColumnFromError(error);
 
-    if (!missingColumn || !(missingColumn in values)) {
-      return { error };
+    if (missingColumn && missingColumn in values) {
+      console.warn(
+        `ticket_messages insert fallback: removing missing column "${missingColumn}" and retrying`,
+      );
+      delete values[missingColumn];
+      continue;
     }
 
-    console.warn(
-      `ticket_messages insert fallback: removing missing column "${missingColumn}" and retrying`,
-    );
-
-    delete values[missingColumn];
+    return { error };
   }
 
   return {
@@ -385,7 +389,7 @@ async function tryReadTicketNumber(input: {
     .single<{ ticket_number?: number | null }>();
 
   if (error) {
-    if (isUndefinedColumnError(error, "ticket_number")) {
+    if (isUndefinedColumnError(error, "tickets", "ticket_number")) {
       return null;
     }
 
@@ -623,6 +627,7 @@ export async function POST(request: NextRequest) {
 
     const ticketMessageValues: Record<string, unknown> = {
       ticket_id: createdTicket.id,
+      direction: "inbound",
       source: "web",
       sender_type: "customer",
       sender_name: name,
