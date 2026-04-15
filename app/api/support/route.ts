@@ -97,7 +97,6 @@ function escapeHtml(value: string): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
@@ -372,7 +371,7 @@ async function insertTicketIntoTable(input: {
   const { supabase, tableName } = input;
   const values = { ...input.values };
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const { data, error } = await supabase
       .from(tableName)
       .insert(values)
@@ -474,7 +473,7 @@ async function insertTicketMessageWithSchemaFallback(input: {
   const { supabase } = input;
   const values = { ...input.values };
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const { error } = await supabase.from("ticket_messages").insert(values);
 
     if (!error) {
@@ -700,14 +699,18 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
 
     const baseTicketValues: Record<string, unknown> = {
+      name,
+      email,
       customer_name: name,
       customer_email: email,
+      subject,
       store_url: storeUrl,
       app_name: appName,
-      subject,
       category,
       status: "open",
+      priority: "normal",
       source: "web",
+      is_open: true,
     };
 
     const {
