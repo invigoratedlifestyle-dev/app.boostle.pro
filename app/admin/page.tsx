@@ -22,23 +22,23 @@ function getStatusStyle(status: SupportTicket["status"]) {
       };
     case "in_progress":
       return {
-        background: "#fef3c7",
-        color: "#b45309",
-        border: "1px solid #fde68a",
+        background: "#dbeafe",
+        color: "#1d4ed8",
+        border: "1px solid #bfdbfe",
         label: "In progress",
       };
     case "waiting_on_customer":
       return {
-        background: "#fef3c7",
-        color: "#b45309",
-        border: "1px solid #fde68a",
+        background: "#ede9fe",
+        color: "#7c3aed",
+        border: "1px solid #c4b5fd",
         label: "Waiting on customer",
       };
     case "resolved":
       return {
-        background: "#ede9fe",
-        color: "#6d28d9",
-        border: "1px solid #c4b5fd",
+        background: "#ecfeff",
+        color: "#0f766e",
+        border: "1px solid #a5f3fc",
         label: "Resolved",
       };
     case "closed":
@@ -98,18 +98,18 @@ function getPriorityStyle(priority: SupportTicket["priority"]) {
   }
 }
 
-function getInitials(name: string, email: string) {
-  const safeName = (name ?? "").trim();
+function getQueueGroups(tickets: SupportTicket[]) {
+  const myTickets = tickets.filter(
+    (ticket) => ticket.status === "in_progress" || ticket.status === "open",
+  );
+  const unassigned = tickets.filter(
+    (ticket) => ticket.status !== "closed" && ticket.status !== "resolved",
+  );
 
-  if (safeName) {
-    const parts = safeName.split(/\s+/).filter(Boolean);
-    return parts
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("");
-  }
-
-  return email.slice(0, 2).toUpperCase();
+  return {
+    myTickets,
+    unassigned,
+  };
 }
 
 function getMessagePreview(ticket: SupportTicket) {
@@ -126,11 +126,11 @@ function getMessagePreview(ticket: SupportTicket) {
     return "No message preview available.";
   }
 
-  if (normalized.length <= 140) {
+  if (normalized.length <= 72) {
     return normalized;
   }
 
-  return `${normalized.slice(0, 137)}...`;
+  return `${normalized.slice(0, 69)}...`;
 }
 
 async function getTickets(): Promise<SupportTicket[]> {
@@ -146,6 +146,300 @@ async function getTickets(): Promise<SupportTicket[]> {
   return data as SupportTicket[];
 }
 
+function SummaryTile({
+  label,
+  value,
+  active = false,
+}: {
+  label: string;
+  value: number;
+  active?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        padding: "14px 18px",
+        borderRight: "1px solid #dbe4f0",
+        background: active ? "#f8fbff" : "#ffffff",
+        boxShadow: active ? "inset 0 -2px 0 #0ea5e9" : "none",
+      }}
+    >
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13,
+          color: "#475569",
+          fontWeight: 500,
+        }}
+      >
+        {label}
+      </p>
+
+      <p
+        style={{
+          margin: "8px 0 0",
+          fontSize: 18,
+          fontWeight: 800,
+          color: value === 0 ? "#94a3b8" : "#0f172a",
+        }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function QueueSection({
+  title,
+  count,
+  tickets,
+}: {
+  title: string;
+  count: number;
+  tickets: SupportTicket[];
+}) {
+  return (
+    <div style={{ borderTop: "1px solid #e5edf5" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "14px 18px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e5edf5",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 14,
+            color: "#64748b",
+          }}
+        >
+          ▾
+        </span>
+
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 14,
+            fontWeight: 800,
+            color: "#0f172a",
+          }}
+        >
+          {title}
+        </h3>
+
+        <span
+          style={{
+            display: "inline-grid",
+            placeItems: "center",
+            minWidth: 22,
+            height: 22,
+            padding: "0 7px",
+            borderRadius: 999,
+            background: "#ffffff",
+            border: "1px solid #dbe4f0",
+            color: "#64748b",
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          {count}
+        </span>
+      </div>
+
+      {tickets.length === 0 ? (
+        <div
+          style={{
+            padding: "18px",
+            fontSize: 14,
+            color: "#64748b",
+            background: "#ffffff",
+          }}
+        >
+          No tickets in this queue.
+        </div>
+      ) : (
+        tickets.map((ticket) => {
+          const statusStyle = getStatusStyle(ticket.status);
+          const priorityStyle = getPriorityStyle(ticket.priority);
+          const preview = getMessagePreview(ticket);
+
+          return (
+            <Link
+              key={ticket.id}
+              href={`/admin/tickets/${ticket.id}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px",
+                alignItems: "center",
+                gap: 0,
+                padding: "0 18px",
+                minHeight: 60,
+                textDecoration: "none",
+                color: "inherit",
+                background: "#ffffff",
+                borderBottom: "1px solid #eef2f7",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  color: "#94a3b8",
+                  fontSize: 14,
+                }}
+              >
+                <span
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: 4,
+                    border: "1px solid #cbd5e1",
+                    display: "inline-block",
+                    background: "#ffffff",
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                #{ticket.ticket_number}
+              </div>
+
+              <div>
+                <span
+                  style={{
+                    ...statusStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    borderRadius: 999,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {statusStyle.label}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  minWidth: 0,
+                  paddingRight: 16,
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#0f172a",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {ticket.subject}
+                </p>
+
+                <p
+                  style={{
+                    margin: "4px 0 0",
+                    fontSize: 12,
+                    color: "#64748b",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {preview}
+                </p>
+              </div>
+
+              <div
+                style={{
+                  minWidth: 0,
+                  paddingRight: 16,
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 14,
+                    color: "#0f172a",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {ticket.name}
+                </p>
+
+                <p
+                  style={{
+                    margin: "4px 0 0",
+                    fontSize: 12,
+                    color: "#64748b",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {ticket.email}
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    ...priorityStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    borderRadius: 999,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {priorityStyle.label}
+                </span>
+
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {formatDate(ticket.created_at)}
+                </span>
+              </div>
+            </Link>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 export default async function AdminDashboardPage() {
   const authed = await isAdminAuthenticated();
 
@@ -154,23 +448,21 @@ export default async function AdminDashboardPage() {
   }
 
   const tickets = await getTickets();
-
   const openCount = tickets.filter((ticket) => ticket.status === "open").length;
-  const inProgressCount = tickets.filter(
-    (ticket) => ticket.status === "in_progress",
+  const unresolvedCount = tickets.filter(
+    (ticket) => ticket.status !== "resolved" && ticket.status !== "closed",
   ).length;
-  const urgentCount = tickets.filter(
+  const dueSoonCount = tickets.filter(
     (ticket) => ticket.priority === "urgent",
   ).length;
-  const waitingCount = tickets.filter(
-    (ticket) => ticket.status === "waiting_on_customer",
-  ).length;
+
+  const { myTickets, unassigned } = getQueueGroups(tickets);
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        background: "#f6f8fb",
+        background: "#f3f6fa",
         color: "#0f172a",
       }}
     >
@@ -179,564 +471,193 @@ export default async function AdminDashboardPage() {
           width: "100%",
           display: "flex",
           justifyContent: "center",
-          padding: "40px 24px",
+          padding: "28px 24px 40px",
           boxSizing: "border-box",
         }}
       >
         <div
           style={{
             width: "100%",
-            maxWidth: 1200,
+            maxWidth: 1280,
             display: "grid",
-            gap: 24,
+            gap: 18,
           }}
         >
-          <section
+          <div
             style={{
-              borderRadius: 24,
-              padding: 28,
-              background:
-                "linear-gradient(135deg, rgba(37,99,235,0.08), rgba(255,255,255,0.96))",
-              border: "1px solid rgba(148,163,184,0.18)",
-              boxShadow: "0 20px 50px rgba(15, 23, 42, 0.06)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 20,
-              }}
-            >
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 12,
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 12,
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                      fontWeight: 800,
-                      color: "#2563eb",
-                    }}
-                  >
-                    Boostle Support
-                  </p>
-
-                  <span
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      background: "#ffffff",
-                      color: "#475569",
-                      border: "1px solid #dbe4f0",
-                    }}
-                  >
-                    Inbox
-                  </span>
-                </div>
-
-                <h1
-                  style={{
-                    margin: 0,
-                    fontSize: 36,
-                    lineHeight: 1.08,
-                    letterSpacing: "-0.04em",
-                    color: "#0f172a",
-                  }}
-                >
-                  Admin Dashboard
-                </h1>
-
-                <p
-                  style={{
-                    margin: "12px 0 0",
-                    color: "#475569",
-                    fontSize: 15,
-                    maxWidth: 720,
-                  }}
-                >
-                  View, scan, and manage support tickets in a cleaner inbox-style
-                  workflow.
-                </p>
-              </div>
-
-              <div>
-                <form action="/api/admin/logout" method="post">
-                  <button
-                    type="submit"
-                    style={{
-                      padding: "12px 16px",
-                      borderRadius: 14,
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      fontWeight: 700,
-                      border: "1px solid #dbe4f0",
-                      boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Log out
-                  </button>
-                </form>
-              </div>
-            </div>
-          </section>
-
-          <section
-            style={{
-              display: "grid",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
               gap: 16,
-              gridTemplateColumns: "repeat(1, minmax(0, 1fr))",
+              flexWrap: "wrap",
             }}
           >
-            {[
-              {
-                label: "Total tickets",
-                value: tickets.length,
-                tone: {
-                  background: "#ffffff",
-                  accent: "#2563eb",
-                },
-              },
-              {
-                label: "Open",
-                value: openCount,
-                tone: {
-                  background: "#ecfdf5",
-                  accent: "#15803d",
-                },
-              },
-              {
-                label: "In progress",
-                value: inProgressCount,
-                tone: {
-                  background: "#fffbeb",
-                  accent: "#b45309",
-                },
-              },
-              {
-                label: "Urgent / waiting",
-                value: urgentCount + waitingCount,
-                tone: {
-                  background: "#fff7ed",
-                  accent: "#c2410c",
-                },
-              },
-            ].map((item) => (
+            <div>
               <div
-                key={item.label}
                 style={{
-                  borderRadius: 22,
-                  padding: 20,
-                  background: item.tone.background,
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 12px 30px rgba(15, 23, 42, 0.04)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 4,
                 }}
               >
                 <p
                   style={{
                     margin: 0,
-                    fontSize: 14,
-                    color: "#64748b",
-                    fontWeight: 600,
-                  }}
-                >
-                  {item.label}
-                </p>
-
-                <p
-                  style={{
-                    margin: "10px 0 0",
-                    fontSize: 34,
-                    lineHeight: 1,
+                    fontSize: 13,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
                     fontWeight: 800,
-                    color: item.tone.accent,
-                    letterSpacing: "-0.03em",
+                    color: "#2563eb",
                   }}
                 >
-                  {item.value}
+                  Boostle Support
                 </p>
               </div>
-            ))}
+
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 22,
+                  fontWeight: 800,
+                  color: "#0f172a",
+                }}
+              >
+                My Queue
+              </h1>
+            </div>
+
+            <form action="/api/admin/logout" method="post">
+              <button
+                type="submit"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 700,
+                  border: "1px solid #dbe4f0",
+                  boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                  cursor: "pointer",
+                }}
+              >
+                Log out
+              </button>
+            </form>
+          </div>
+
+          <section
+            style={{
+              background: "#ffffff",
+              border: "1px solid #dbe4f0",
+              borderRadius: 14,
+              overflow: "hidden",
+              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+              }}
+            >
+              <SummaryTile label="All Tickets" value={tickets.length} active />
+              <SummaryTile label="Unassigned" value={unassigned.length} />
+              <SummaryTile label="Unresolved" value={unresolvedCount} />
+              <SummaryTile label="Due Soon" value={dueSoonCount} />
+            </div>
           </section>
 
           <section
             style={{
               background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: 24,
+              border: "1px solid #dbe4f0",
+              borderRadius: 14,
               overflow: "hidden",
-              boxShadow: "0 12px 30px rgba(15, 23, 42, 0.04)",
+              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
             }}
           >
             <div
               style={{
-                padding: "20px 24px",
-                borderBottom: "1px solid #eef2f7",
                 display: "grid",
-                gap: 16,
-                background:
-                  "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+                gridTemplateColumns: "52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px",
+                alignItems: "center",
+                padding: "12px 18px",
+                background: "#f8fafc",
+                borderBottom: "1px solid #dbe4f0",
+                color: "#475569",
+                fontSize: 12,
+                fontWeight: 800,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 16,
-                }}
-              >
-                <div>
-                  <h2
-                    style={{
-                      margin: 0,
-                      fontSize: 24,
-                      letterSpacing: "-0.02em",
-                      color: "#0f172a",
-                    }}
-                  >
-                    Ticket inbox
-                  </h2>
-
-                  <p
-                    style={{
-                      margin: "6px 0 0",
-                      color: "#64748b",
-                      fontSize: 14,
-                    }}
-                  >
-                    A cleaner, more scannable list styled to match the ticket
-                    view.
-                  </p>
-                </div>
-
-                <div
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 14,
-                    background: "#f8fafc",
-                    border: "1px solid #e2e8f0",
-                    color: "#475569",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    width: "fit-content",
-                  }}
-                >
-                  {tickets.length} ticket{tickets.length === 1 ? "" : "s"}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  alignItems: "flex-start",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  {[
-                    { label: "All", count: tickets.length, active: true },
-                    { label: "Open", count: openCount, active: false },
-                    {
-                      label: "In progress",
-                      count: inProgressCount,
-                      active: false,
-                    },
-                    { label: "Urgent", count: urgentCount, active: false },
-                  ].map((filter) => (
-                    <span
-                      key={filter.label}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 8,
-                        padding: "8px 12px",
-                        borderRadius: 999,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        border: filter.active
-                          ? "1px solid #bfdbfe"
-                          : "1px solid #e2e8f0",
-                        background: filter.active ? "#eff6ff" : "#ffffff",
-                        color: filter.active ? "#1d4ed8" : "#475569",
-                      }}
-                    >
-                      {filter.label}
-                      <span
-                        style={{
-                          display: "inline-grid",
-                          placeItems: "center",
-                          minWidth: 20,
-                          height: 20,
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          background: filter.active ? "#dbeafe" : "#f1f5f9",
-                          color: filter.active ? "#1d4ed8" : "#475569",
-                          padding: "0 6px",
-                        }}
-                      >
-                        {filter.count}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-
-                <div
-                  style={{
-                    width: "100%",
-                    maxWidth: 320,
-                    borderRadius: 14,
-                    border: "1px solid #dbe4f0",
-                    background: "#ffffff",
-                    padding: "12px 14px",
-                    color: "#94a3b8",
-                    fontSize: 14,
-                    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.03)",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  Search by email, subject, or ticket ID
-                </div>
-              </div>
+              <div />
+              <div>#</div>
+              <div>Status</div>
+              <div>Subject</div>
+              <div>Customer</div>
+              <div>Priority / Created</div>
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gap: 0,
-                background:
-                  "linear-gradient(180deg, #fcfdff 0%, #f8fafc 100%)",
-              }}
-            >
-              {tickets.length === 0 ? (
-                <div
-                  style={{
-                    padding: 40,
-                    textAlign: "center",
-                    color: "#64748b",
-                  }}
-                >
-                  No tickets yet.
-                </div>
-              ) : (
-                tickets.map((ticket) => {
-                  const statusStyle = getStatusStyle(ticket.status);
-                  const priorityStyle = getPriorityStyle(ticket.priority);
-                  const preview = getMessagePreview(ticket);
+            <QueueSection
+              title="My Tickets"
+              count={myTickets.length}
+              tickets={myTickets.slice(0, 8)}
+            />
 
-                  return (
-                    <Link
-                      key={ticket.id}
-                      href={`/admin/tickets/${ticket.id}`}
-                      style={{
-                        display: "block",
-                        textDecoration: "none",
-                        color: "inherit",
-                        borderTop: "1px solid #eef2f7",
-                      }}
-                    >
-                      <article
-                        style={{
-                          padding: 20,
-                          background: "#ffffff",
-                          transition: "background 0.15s ease",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 16,
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              minWidth: 0,
-                              alignItems: "flex-start",
-                              gap: 16,
-                              flex: 1,
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: 48,
-                                height: 48,
-                                borderRadius: 16,
-                                background: "#dbeafe",
-                                color: "#1d4ed8",
-                                display: "grid",
-                                placeItems: "center",
-                                fontWeight: 800,
-                                fontSize: 14,
-                                border: "1px solid #bfdbfe",
-                                boxShadow:
-                                  "0 8px 16px rgba(37, 99, 235, 0.08)",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {getInitials(ticket.name, ticket.email)}
-                            </div>
-
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  flexWrap: "wrap",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  marginBottom: 8,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    padding: "5px 9px",
-                                    borderRadius: 999,
-                                    fontSize: 12,
-                                    fontWeight: 800,
-                                    background: "#f8fafc",
-                                    color: "#475569",
-                                    border: "1px solid #e2e8f0",
-                                  }}
-                                >
-                                  #{ticket.ticket_number}
-                                </span>
-
-                                <span
-                                  style={{
-                                    ...statusStyle,
-                                    padding: "5px 9px",
-                                    borderRadius: 999,
-                                    fontSize: 12,
-                                    fontWeight: 800,
-                                  }}
-                                >
-                                  {statusStyle.label}
-                                </span>
-
-                                <span
-                                  style={{
-                                    ...priorityStyle,
-                                    padding: "5px 9px",
-                                    borderRadius: 999,
-                                    fontSize: 12,
-                                    fontWeight: 800,
-                                  }}
-                                >
-                                  {priorityStyle.label}
-                                </span>
-                              </div>
-
-                              <h3
-                                style={{
-                                  margin: 0,
-                                  fontSize: 20,
-                                  lineHeight: 1.2,
-                                  letterSpacing: "-0.02em",
-                                  color: "#0f172a",
-                                }}
-                              >
-                                {ticket.subject}
-                              </h3>
-
-                              <p
-                                style={{
-                                  margin: "8px 0 0",
-                                  color: "#475569",
-                                  fontSize: 14,
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {ticket.name} · {ticket.email}
-                              </p>
-
-                              <p
-                                style={{
-                                  margin: "10px 0 0",
-                                  color: "#64748b",
-                                  fontSize: 14,
-                                  lineHeight: 1.6,
-                                  maxWidth: 780,
-                                }}
-                              >
-                                {preview}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              color: "#64748b",
-                              flexShrink: 0,
-                              justifyContent: "space-between",
-                            }}
-                          >
-                            <p
-                              style={{
-                                margin: 0,
-                                fontSize: 13,
-                                fontWeight: 600,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {formatDate(ticket.created_at)}
-                            </p>
-
-                            <span
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 700,
-                                color: "#2563eb",
-                              }}
-                            >
-                              Open ticket →
-                            </span>
-                          </div>
-                        </div>
-                      </article>
-                    </Link>
-                  );
-                })
-              )}
-            </div>
+            <QueueSection
+              title="Unassigned"
+              count={unassigned.length}
+              tickets={unassigned.slice(0, 12)}
+            />
           </section>
         </div>
       </div>
 
       <style>{`
-        @media (min-width: 900px) {
-          .dashboard-stats-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+        @media (max-width: 1100px) {
+          .queue-hide-table {
+            display: none !important;
           }
         }
 
-        @media (min-width: 1200px) {
-          .dashboard-stats-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+        @media (max-width: 980px) {
+          main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
+
+          a[style*="grid-template-columns: 52px 110px 170px"] {
+            grid-template-columns: 52px 110px minmax(0, 1fr) !important;
+            padding-top: 12px !important;
+            padding-bottom: 12px !important;
+          }
+
+          a[style*="grid-template-columns: 52px 110px 170px"] > div:nth-child(3),
+          a[style*="grid-template-columns: 52px 110px 170px"] > div:nth-child(5),
+          a[style*="grid-template-columns: 52px 110px 170px"] > div:nth-child(6) {
+            display: none !important;
+          }
+
+          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] {
+            grid-template-columns: 52px 110px minmax(0, 1fr) !important;
+          }
+
+          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] > div:nth-child(3),
+          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] > div:nth-child(5),
+          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] > div:nth-child(6) {
+            display: none !important;
+          }
+        }
+
+        @media (max-width: 640px) {
+          main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
+        a[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"]:hover {
+          background: #f8fbff !important;
         }
       `}</style>
     </main>
