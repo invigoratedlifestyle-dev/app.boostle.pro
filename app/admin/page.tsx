@@ -412,7 +412,6 @@ function BulkActionsBar({
     <div
       style={{
         padding: 16,
-        borderTop: "1px solid #dbe4f0",
         background: "#ffffff",
       }}
     >
@@ -439,7 +438,8 @@ function BulkActionsBar({
             color: "#64748b",
           }}
         >
-          Select tickets from the table, then bulk reassign, resolve, or delete.
+          Select tickets from the table above, then bulk reassign, resolve, or
+          delete.
         </p>
       </div>
 
@@ -585,11 +585,9 @@ function BulkActionsBar({
 function QueueTable({
   title,
   tickets,
-  currentQueue,
 }: {
   title: string;
   tickets: SupportTicket[];
-  currentQueue: QueueKey;
 }) {
   return (
     <section
@@ -641,8 +639,6 @@ function QueueTable({
         </span>
       </div>
 
-      <BulkActionsBar currentQueue={currentQueue} />
-
       <div
         id="selectionSummary"
         style={{
@@ -652,7 +648,6 @@ function QueueTable({
           gap: 12,
           padding: "12px 14px",
           background: "#eff6ff",
-          borderTop: "1px solid #dbe4f0",
           borderBottom: "1px solid #dbe4f0",
         }}
       >
@@ -1219,8 +1214,38 @@ export default async function AdminDashboardPage({
             <QueueTable
               title={getQueueLabel(selectedQueue)}
               tickets={ticketsInSelectedQueue}
-              currentQueue={selectedQueue}
             />
+
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #dbe4f0",
+                borderRadius: 14,
+                overflow: "hidden",
+                boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderBottom: "1px solid #dbe4f0",
+                  background: "#f8fafc",
+                }}
+              >
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    color: "#0f172a",
+                  }}
+                >
+                  Bulk actions
+                </h2>
+              </div>
+
+              <BulkActionsBar currentQueue={selectedQueue} />
+            </section>
           </form>
         </div>
       </div>
