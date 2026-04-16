@@ -136,6 +136,19 @@ function buildFromAddress(input: string | null, fallbackEmail: string): string {
   return extracted;
 }
 
+function resolveSupportEmail(): string {
+  const value =
+    getOptionalEnv("SUPPORT_EMAIL") ||
+    getOptionalEnv("NEXT_PUBLIC_SUPPORT_EMAIL") ||
+    "support@boostle.pro";
+
+  return normalizeEmail(value);
+}
+
+function resolveFromAddress(supportEmail: string): string {
+  return buildFromAddress(getOptionalEnv("SUPPORT_FROM_EMAIL"), supportEmail);
+}
+
 function isMissingRelationError(error: unknown, relationName: string): boolean {
   const maybeError = error as SupabaseLikeError | null | undefined;
   const code = maybeError?.code || "";
@@ -253,7 +266,9 @@ async function createLegacyTicket(input: {
   appName: string;
   category: string;
 }) {
-  const { supabase, name, email, subject, message, storeUrl, appName, category } = input;
+  const { supabase, name, email, subject, message, storeUrl, appName, category } =
+    input;
+
   const publicThreadId = await ensureUniquePublicThreadId({
     supabase,
     tableName: "tickets",
@@ -542,7 +557,7 @@ async function sendSupportNotificationEmail(input: {
 
   const safeMessage = escapeHtml(message).replaceAll("\n", "<br />");
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from,
     to,
     replyTo,
@@ -578,6 +593,14 @@ async function sendSupportNotificationEmail(input: {
       </div>
     `,
   });
+
+  console.log("Sent internal support notification", {
+    to,
+    subject: `[${ticketLabel}] ${subject}`,
+    resendResult: result,
+  });
+
+  return result;
 }
 
 async function sendCustomerConfirmationEmail(input: {
@@ -609,7 +632,7 @@ async function sendCustomerConfirmationEmail(input: {
     supportEmail,
   } = input;
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from,
     to,
     replyTo,
@@ -634,6 +657,14 @@ async function sendCustomerConfirmationEmail(input: {
       supportEmail,
     }),
   });
+
+  console.log("Sent customer confirmation email", {
+    to,
+    subject: `We received your Boostle support request (${ticketLabel})`,
+    resendResult: result,
+  });
+
+  return result;
 }
 
 export async function POST(request: NextRequest) {
@@ -644,8 +675,8 @@ export async function POST(request: NextRequest) {
     const email = normalizeEmail(sanitizeText(body.email));
     const storeUrl = sanitizeText(body.storeUrl);
     const appName = sanitizeText(body.appName) || "Boostle";
-    const subject = sanitizeText(body.subject);
     const category = sanitizeText(body.category) || "General";
+    const subject = sanitizeText(body.subject);
     const message = sanitizeText(body.message);
 
     if (!name || !email || !subject || !message) {
@@ -767,15 +798,8 @@ export async function POST(request: NextRequest) {
         : null;
 
     const resendApiKey = getOptionalEnv("RESEND_API_KEY");
-    const supportEmail =
-      getOptionalEnv("SUPPORT_EMAIL") ||
-      getOptionalEnv("NEXT_PUBLIC_SUPPORT_EMAIL") ||
-      "support@boostle.pro";
-
-    const fromAddress = buildFromAddress(
-      getOptionalEnv("SUPPORT_FROM_EMAIL"),
-      supportEmail,
-    );
+    const supportEmail = resolveSupportEmail();
+    const fromAddress = resolveFromAddress(supportEmail);
 
     const ticketLabel =
       ticketNumber && createdTicket
@@ -803,7 +827,12 @@ export async function POST(request: NextRequest) {
           ticketLabel,
         });
       } catch (error) {
-        console.error("Failed sending internal support notification", error);
+        console.error("Failed sending internal support notification", {
+          to: supportEmail,
+          customerEmail: email,
+          subject,
+          error,
+        });
       }
 
       try {
@@ -822,7 +851,13 @@ export async function POST(request: NextRequest) {
           supportEmail,
         });
       } catch (error) {
-        console.error("Failed sending customer confirmation email", error);
+        console.error("Failed sending customer confirmation email", {
+          to: email,
+          from: fromAddress,
+          replyTo: supportEmail,
+          subject: `We received your Boostle support request (${ticketLabel})`,
+          error,
+        });
       }
     } else {
       console.warn("RESEND_API_KEY is not set. Skipping support emails.");
