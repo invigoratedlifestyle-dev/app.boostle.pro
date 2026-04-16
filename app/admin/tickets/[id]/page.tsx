@@ -64,14 +64,26 @@ function getSupabaseAdmin() {
 
 function getStatusStyle(status: TicketStatus) {
   if (status === "open") {
-    return { background: "#dcfce7", color: "#15803d" };
+    return {
+      background: "#dcfce7",
+      color: "#15803d",
+      border: "1px solid #86efac",
+    };
   }
 
   if (status === "in_progress") {
-    return { background: "#fef3c7", color: "#b45309" };
+    return {
+      background: "#fef3c7",
+      color: "#b45309",
+      border: "1px solid #fde68a",
+    };
   }
 
-  return { background: "#e2e8f0", color: "#475569" };
+  return {
+    background: "#e2e8f0",
+    color: "#475569",
+    border: "1px solid #cbd5e1",
+  };
 }
 
 function getStatusLabel(status: TicketStatus) {
@@ -80,6 +92,20 @@ function getStatusLabel(status: TicketStatus) {
   }
 
   return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function getInitials(name: string | null | undefined, email: string) {
+  const safeName = (name ?? "").trim();
+
+  if (safeName) {
+    const parts = safeName.split(/\s+/).filter(Boolean);
+    return parts
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("");
+  }
+
+  return email.slice(0, 2).toUpperCase();
 }
 
 function cleanQuotedReply(text: string | null | undefined) {
@@ -123,6 +149,50 @@ function cleanQuotedReply(text: string | null | undefined) {
   }
 
   return cleanLines.join("\n").trim();
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function getMessageMeta(item: ConversationItem) {
+  if (item.type === "admin_reply") {
+    return {
+      label: "Agent reply",
+      chipText: "Outbound email",
+      chipStyle: {
+        background: "#dbeafe",
+        color: "#1d4ed8",
+        border: "1px solid #bfdbfe",
+      },
+      cardStyle: {
+        background: "#f8fbff",
+        border: "1px solid #d9e8ff",
+      },
+      avatarStyle: {
+        background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+        color: "#ffffff",
+      },
+    };
+  }
+
+  return {
+    label: "Customer reply",
+    chipText: "Inbound email",
+    chipStyle: {
+      background: "#ecfeff",
+      color: "#0f766e",
+      border: "1px solid #a5f3fc",
+    },
+    cardStyle: {
+      background: "#ffffff",
+      border: "1px solid #e2e8f0",
+    },
+    avatarStyle: {
+      background: "#e2e8f0",
+      color: "#0f172a",
+    },
+  };
 }
 
 export default async function AdminTicketDetailPage({
@@ -190,115 +260,105 @@ export default async function AdminTicketDetailPage({
 
   const typedTicket = ticket as Ticket;
   const returnTo = `/admin/tickets/${typedTicket.id}`;
+  const statusStyle = getStatusStyle(typedTicket.status);
+  const originalMessageBody = cleanQuotedReply(typedTicket.message);
 
   return (
-    <main className="page-shell">
-      <div className="container" style={{ display: "grid", gap: 20 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <p
-              style={{
-                fontSize: 13,
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                color: "#2563eb",
-                margin: "0 0 6px",
-              }}
-            >
-              Boostle Support
-            </p>
-
-            <h1
-              style={{
-                margin: 0,
-                fontSize: 34,
-                letterSpacing: "-0.03em",
-              }}
-            >
-              Ticket Detail
-            </h1>
-          </div>
-
-          <Link
-            href="/admin"
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              background: "#eef4ff",
-              color: "#2563eb",
-              fontWeight: 700,
-              textDecoration: "none",
-            }}
-          >
-            Back to dashboard
-          </Link>
-        </div>
-
-        {replySent ? (
-          <div
-            className="card"
-            style={{
-              padding: 16,
-              background: "#ecfdf5",
-              border: "1px solid #a7f3d0",
-              color: "#065f46",
-            }}
-          >
-            Reply sent successfully and added to ticket history.
-          </div>
-        ) : null}
-
+    <main className="page-shell" style={{ background: "#f6f8fb" }}>
+      <div
+        className="container"
+        style={{
+          maxWidth: 1440,
+          display: "grid",
+          gap: 24,
+          paddingBottom: 40,
+        }}
+      >
         <section
-          className="card"
           style={{
-            padding: 24,
-            display: "grid",
-            gap: 20,
+            borderRadius: 24,
+            padding: 28,
+            background:
+              "linear-gradient(135deg, rgba(37,99,235,0.08), rgba(255,255,255,0.96))",
+            border: "1px solid rgba(148,163,184,0.18)",
+            boxShadow: "0 20px 50px rgba(15, 23, 42, 0.06)",
           }}
         >
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
-              gap: 16,
-              flexWrap: "wrap",
               alignItems: "flex-start",
+              gap: 20,
+              flexWrap: "wrap",
             }}
           >
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
                   display: "flex",
-                  gap: 10,
                   alignItems: "center",
+                  gap: 10,
                   flexWrap: "wrap",
+                  marginBottom: 12,
                 }}
               >
-                <h2
+                <p
                   style={{
                     margin: 0,
-                    fontSize: 28,
-                    lineHeight: 1.15,
-                    letterSpacing: "-0.03em",
+                    fontSize: 12,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    fontWeight: 800,
+                    color: "#2563eb",
                   }}
                 >
-                  {typedTicket.subject}
-                </h2>
+                  Boostle Support
+                </p>
 
                 <span
                   style={{
-                    ...getStatusStyle(typedTicket.status),
-                    padding: "4px 10px",
+                    padding: "6px 10px",
                     borderRadius: 999,
                     fontSize: 12,
                     fontWeight: 700,
+                    background: "#ffffff",
+                    color: "#475569",
+                    border: "1px solid #dbe4f0",
+                  }}
+                >
+                  Ticket #{typedTicket.id.slice(0, 8)}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: 36,
+                    lineHeight: 1.08,
+                    letterSpacing: "-0.04em",
+                    color: "#0f172a",
+                  }}
+                >
+                  {typedTicket.subject}
+                </h1>
+
+                <span
+                  style={{
+                    ...statusStyle,
+                    padding: "7px 12px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {getStatusLabel(typedTicket.status)}
@@ -307,305 +367,223 @@ export default async function AdminTicketDetailPage({
 
               <p
                 style={{
-                  margin: "10px 0 0",
-                  color: "#58677a",
+                  margin: "12px 0 0",
+                  color: "#475569",
+                  fontSize: 15,
                 }}
               >
-                From {typedTicket.name} · {typedTicket.email}
+                {typedTicket.name} · {typedTicket.email}
               </p>
 
               <p
                 style={{
                   margin: "6px 0 0",
-                  color: "#58677a",
+                  color: "#64748b",
                   fontSize: 14,
                 }}
               >
-                Submitted {new Date(typedTicket.created_at).toLocaleString()}
+                Submitted {formatDateTime(typedTicket.created_at)}
               </p>
             </div>
 
-            <form action={updateTicketStatusAction}>
-              <input type="hidden" name="ticketId" value={typedTicket.id} />
-              <input type="hidden" name="returnTo" value={returnTo} />
+            <Link
+              href="/admin"
+              style={{
+                padding: "12px 16px",
+                borderRadius: 14,
+                background: "#ffffff",
+                color: "#0f172a",
+                fontWeight: 700,
+                textDecoration: "none",
+                border: "1px solid #dbe4f0",
+                boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)",
+              }}
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        </section>
+
+        {replySent ? (
+          <div
+            style={{
+              borderRadius: 18,
+              padding: "16px 18px",
+              background: "#ecfdf5",
+              border: "1px solid #a7f3d0",
+              color: "#065f46",
+              fontWeight: 600,
+              boxShadow: "0 10px 30px rgba(16, 185, 129, 0.08)",
+            }}
+          >
+            Reply sent successfully and added to ticket history.
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 0.9fr)",
+            gap: 24,
+            alignItems: "start",
+          }}
+        >
+          <div style={{ display: "grid", gap: 24 }}>
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 24,
+                overflow: "hidden",
+                boxShadow: "0 12px 30px rgba(15, 23, 42, 0.04)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "20px 24px",
+                  borderBottom: "1px solid #eef2f7",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: 24,
+                      letterSpacing: "-0.02em",
+                      color: "#0f172a",
+                    }}
+                  >
+                    Conversation
+                  </h2>
+
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      color: "#64748b",
+                      fontSize: 14,
+                    }}
+                  >
+                    Full ticket timeline, styled like a real support thread.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 14,
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    color: "#475569",
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  {conversation.length + 1} message
+                  {conversation.length === 0 ? "" : "s"}
+                </div>
+              </div>
 
               <div
                 style={{
-                  display: "flex",
-                  gap: 10,
-                  alignItems: "center",
-                  flexWrap: "wrap",
+                  padding: 24,
+                  display: "grid",
+                  gap: 18,
+                  background:
+                    "linear-gradient(180deg, #fcfdff 0%, #f8fafc 100%)",
                 }}
               >
-                <select
-                  name="status"
-                  defaultValue={typedTicket.status}
+                <div
                   style={{
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    border: "1px solid #dbe4f0",
-                    background: "#fff",
-                    color: "#122033",
-                    font: "inherit",
+                    display: "grid",
+                    gridTemplateColumns: "52px minmax(0, 1fr)",
+                    gap: 14,
+                    alignItems: "start",
                   }}
                 >
-                  <option value="open">Open</option>
-                  <option value="in_progress">In progress</option>
-                  <option value="closed">Closed</option>
-                </select>
-
-                <button
-                  type="submit"
-                  style={{
-                    appearance: "none",
-                    border: 0,
-                    cursor: "pointer",
-                    borderRadius: 12,
-                    padding: "12px 16px",
-                    fontWeight: 700,
-                    background: "#2563eb",
-                    color: "#ffffff",
-                    font: "inherit",
-                  }}
-                >
-                  Update status
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
-
-        <section
-          className="card"
-          style={{
-            padding: 24,
-            display: "grid",
-            gap: 16,
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: 24,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Customer message
-            </h2>
-
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#58677a",
-              }}
-            >
-              Original ticket message from the customer.
-            </p>
-          </div>
-
-          <div
-            style={{
-              padding: 18,
-              borderRadius: 14,
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <div
-              style={{
-                whiteSpace: "pre-wrap",
-                lineHeight: 1.7,
-                color: "#122033",
-              }}
-            >
-              {typedTicket.message}
-            </div>
-          </div>
-        </section>
-
-        <section
-          className="card"
-          style={{
-            padding: 24,
-            display: "grid",
-            gap: 16,
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: 24,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Reply to customer
-            </h2>
-
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#58677a",
-              }}
-            >
-              This sends an email reply to the customer and moves the ticket to
-              In progress.
-            </p>
-          </div>
-
-          <form
-            action={sendTicketReplyAction}
-            style={{ display: "grid", gap: 16 }}
-          >
-            <input type="hidden" name="ticketId" value={typedTicket.id} />
-
-            <div
-              style={{
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <label
-                htmlFor="replyBody"
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: "#122033",
-                }}
-              >
-                Reply message
-              </label>
-
-              <textarea
-                id="replyBody"
-                name="replyBody"
-                placeholder="Write your reply to the customer..."
-                required
-                style={{
-                  width: "100%",
-                  minHeight: 150,
-                  resize: "vertical",
-                  border: "1px solid #dbe4f0",
-                  background: "#ffffff",
-                  color: "#122033",
-                  borderRadius: 12,
-                  padding: "14px 14px",
-                  outline: "none",
-                  boxSizing: "border-box",
-                  font: "inherit",
-                  lineHeight: 1.6,
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <button
-                type="submit"
-                style={{
-                  appearance: "none",
-                  border: 0,
-                  cursor: "pointer",
-                  borderRadius: 12,
-                  padding: "14px 18px",
-                  fontWeight: 700,
-                  background: "#2563eb",
-                  color: "#ffffff",
-                  font: "inherit",
-                }}
-              >
-                Send reply
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section
-          className="card"
-          style={{
-            padding: 24,
-            display: "grid",
-            gap: 14,
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: 24,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Ticket history
-            </h2>
-
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#58677a",
-              }}
-            >
-              Replies sent to and received for this ticket.
-            </p>
-          </div>
-
-          {conversation.length === 0 ? (
-            <div
-              style={{
-                padding: 18,
-                borderRadius: 14,
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                color: "#58677a",
-              }}
-            >
-              No replies yet.
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {conversation.map((item) =>
-                item.type === "admin_reply" ? (
                   <div
-                    key={`admin-${item.id}`}
                     style={{
-                      padding: 18,
-                      borderRadius: 14,
-                      background: "#eef4ff",
-                      border: "1px solid #dbe4f0",
+                      width: 52,
+                      height: 52,
+                      borderRadius: 16,
+                      background: "#dbeafe",
+                      color: "#1d4ed8",
+                      display: "grid",
+                      placeItems: "center",
+                      fontWeight: 800,
+                      fontSize: 14,
+                      border: "1px solid #bfdbfe",
+                      boxShadow: "0 8px 16px rgba(37, 99, 235, 0.1)",
+                    }}
+                  >
+                    {getInitials(typedTicket.name, typedTicket.email)}
+                  </div>
+
+                  <article
+                    style={{
+                      borderRadius: 22,
+                      background: "#ffffff",
+                      border: "1px solid #e2e8f0",
+                      padding: 20,
+                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
                     }}
                   >
                     <div
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
-                        gap: 12,
+                        gap: 14,
                         flexWrap: "wrap",
-                        alignItems: "center",
+                        alignItems: "flex-start",
                       }}
                     >
-                      <div>
-                        <p
+                      <div style={{ minWidth: 0 }}>
+                        <div
                           style={{
-                            margin: 0,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#122033",
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "center",
+                            flexWrap: "wrap",
                           }}
                         >
-                          Reply sent from{" "}
-                          {item.sender_name
-                            ? `${item.sender_name} (${item.sender_email})`
-                            : item.sender_email}
-                        </p>
+                          <p
+                            style={{
+                              margin: 0,
+                              fontSize: 15,
+                              fontWeight: 800,
+                              color: "#0f172a",
+                            }}
+                          >
+                            {typedTicket.name}
+                          </p>
+
+                          <span
+                            style={{
+                              padding: "4px 9px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: "#ecfeff",
+                              color: "#0f766e",
+                              border: "1px solid #a5f3fc",
+                            }}
+                          >
+                            Original request
+                          </span>
+                        </div>
 
                         <p
                           style={{
-                            margin: "4px 0 0",
+                            margin: "6px 0 0",
                             fontSize: 13,
-                            color: "#58677a",
+                            color: "#64748b",
                           }}
                         >
-                          Admin reply
+                          {typedTicket.email}
                         </p>
                       </div>
 
@@ -613,96 +591,585 @@ export default async function AdminTicketDetailPage({
                         style={{
                           margin: 0,
                           fontSize: 13,
-                          color: "#58677a",
+                          color: "#64748b",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        {new Date(item.created_at).toLocaleString()}
+                        {formatDateTime(typedTicket.created_at)}
                       </p>
                     </div>
 
                     <div
                       style={{
-                        marginTop: 12,
+                        marginTop: 16,
                         whiteSpace: "pre-wrap",
-                        lineHeight: 1.7,
+                        lineHeight: 1.75,
                         color: "#122033",
+                        fontSize: 15,
                       }}
                     >
-                      {item.body?.trim() ? item.body : "(No message body captured)"}
+                      {originalMessageBody || "(No message body captured)"}
                     </div>
+                  </article>
+                </div>
+
+                {conversation.length === 0 ? (
+                  <div
+                    style={{
+                      borderRadius: 20,
+                      padding: 24,
+                      background: "#ffffff",
+                      border: "1px dashed #cbd5e1",
+                      color: "#64748b",
+                      textAlign: "center",
+                    }}
+                  >
+                    No replies yet. The thread will appear here as messages come
+                    in and out.
                   </div>
                 ) : (
-                  <div
-                    key={`customer-${item.id}`}
-                    style={{
-                      padding: 18,
-                      borderRadius: 14,
-                      background: "#f8fafc",
-                      border: "1px solid #e2e8f0",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                      }}
-                    >
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#122033",
-                          }}
-                        >
-                          Reply received from{" "}
-                          {item.sender_name
-                            ? `${item.sender_name} (${item.sender_email})`
-                            : item.sender_email}
-                        </p>
+                  conversation.map((item) => {
+                    const meta = getMessageMeta(item);
+                    const displayName =
+                      item.sender_name?.trim() || item.sender_email;
 
-                        <p
-                          style={{
-                            margin: "4px 0 0",
-                            fontSize: 13,
-                            color: "#58677a",
-                          }}
-                        >
-                          Customer reply
-                        </p>
-                      </div>
-
-                      <p
+                    return (
+                      <div
+                        key={item.id}
                         style={{
-                          margin: 0,
-                          fontSize: 13,
-                          color: "#58677a",
+                          display: "grid",
+                          gridTemplateColumns: "52px minmax(0, 1fr)",
+                          gap: 14,
+                          alignItems: "start",
                         }}
                       >
-                        {new Date(item.created_at).toLocaleString()}
-                      </p>
-                    </div>
+                        <div
+                          style={{
+                            width: 52,
+                            height: 52,
+                            borderRadius: 16,
+                            display: "grid",
+                            placeItems: "center",
+                            fontWeight: 800,
+                            fontSize: 14,
+                            border:
+                              item.type === "admin_reply"
+                                ? "1px solid #2563eb"
+                                : "1px solid #cbd5e1",
+                            boxShadow: "0 8px 16px rgba(15, 23, 42, 0.06)",
+                            ...meta.avatarStyle,
+                          }}
+                        >
+                          {getInitials(item.sender_name, item.sender_email)}
+                        </div>
 
-                    <div
+                        <article
+                          style={{
+                            ...meta.cardStyle,
+                            borderRadius: 22,
+                            padding: 20,
+                            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 14,
+                              flexWrap: "wrap",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 8,
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <p
+                                  style={{
+                                    margin: 0,
+                                    fontSize: 15,
+                                    fontWeight: 800,
+                                    color: "#0f172a",
+                                  }}
+                                >
+                                  {displayName}
+                                </p>
+
+                                <span
+                                  style={{
+                                    ...meta.chipStyle,
+                                    padding: "4px 9px",
+                                    borderRadius: 999,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {meta.chipText}
+                                </span>
+                              </div>
+
+                              <p
+                                style={{
+                                  margin: "6px 0 0",
+                                  fontSize: 13,
+                                  color: "#64748b",
+                                }}
+                              >
+                                {meta.label} · {item.sender_email}
+                              </p>
+                            </div>
+
+                            <p
+                              style={{
+                                margin: 0,
+                                fontSize: 13,
+                                color: "#64748b",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {formatDateTime(item.created_at)}
+                            </p>
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop: 16,
+                              whiteSpace: "pre-wrap",
+                              lineHeight: 1.75,
+                              color: "#122033",
+                              fontSize: 15,
+                            }}
+                          >
+                            {item.body?.trim()
+                              ? item.body
+                              : "(No message body captured)"}
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            <section
+              style={{
+                position: "sticky",
+                bottom: 16,
+                background: "#ffffff",
+                border: "1px solid #dbe4f0",
+                borderRadius: 24,
+                boxShadow: "0 18px 36px rgba(15, 23, 42, 0.08)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "16px 20px",
+                  borderBottom: "1px solid #eef2f7",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 16,
+                  flexWrap: "wrap",
+                  background:
+                    "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+                }}
+              >
+                <div>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: 22,
+                      letterSpacing: "-0.02em",
+                      color: "#0f172a",
+                    }}
+                  >
+                    Reply to customer
+                  </h2>
+
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      color: "#64748b",
+                      fontSize: 14,
+                    }}
+                  >
+                    Send a polished response and keep the workflow moving.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 999,
+                      background: "#eff6ff",
+                      color: "#1d4ed8",
+                      border: "1px solid #bfdbfe",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Public reply
+                  </span>
+
+                  <span
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 999,
+                      background: "#f8fafc",
+                      color: "#64748b",
+                      border: "1px solid #e2e8f0",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Email channel
+                  </span>
+                </div>
+              </div>
+
+              <form
+                action={sendTicketReplyAction}
+                style={{ display: "grid", gap: 0 }}
+              >
+                <input type="hidden" name="ticketId" value={typedTicket.id} />
+
+                <div style={{ padding: 20 }}>
+                  <label
+                    htmlFor="replyBody"
+                    style={{
+                      display: "block",
+                      marginBottom: 10,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#122033",
+                    }}
+                  >
+                    Message
+                  </label>
+
+                  <textarea
+                    id="replyBody"
+                    name="replyBody"
+                    placeholder="Write your reply to the customer..."
+                    required
+                    style={{
+                      width: "100%",
+                      minHeight: 180,
+                      resize: "vertical",
+                      border: "1px solid #dbe4f0",
+                      background: "#ffffff",
+                      color: "#122033",
+                      borderRadius: 18,
+                      padding: "16px 18px",
+                      outline: "none",
+                      boxSizing: "border-box",
+                      font: "inherit",
+                      fontSize: 15,
+                      lineHeight: 1.7,
+                      boxShadow: "inset 0 1px 2px rgba(15, 23, 42, 0.04)",
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    padding: "16px 20px 20px",
+                    borderTop: "1px solid #eef2f7",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 16,
+                    flexWrap: "wrap",
+                    background: "#fcfdff",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      color: "#64748b",
+                      fontSize: 13,
+                    }}
+                  >
+                    Sending a reply will email the customer and move the ticket
+                    to In progress.
+                  </p>
+
+                  <button
+                    type="submit"
+                    style={{
+                      appearance: "none",
+                      border: 0,
+                      cursor: "pointer",
+                      borderRadius: 16,
+                      padding: "14px 20px",
+                      fontWeight: 800,
+                      background:
+                        "linear-gradient(135deg, #2563eb, #1d4ed8 60%, #1e40af)",
+                      color: "#ffffff",
+                      font: "inherit",
+                      boxShadow: "0 14px 24px rgba(37, 99, 235, 0.25)",
+                    }}
+                  >
+                    Send reply
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+
+          <aside style={{ display: "grid", gap: 20 }}>
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 24,
+                padding: 22,
+                boxShadow: "0 12px 30px rgba(15, 23, 42, 0.04)",
+                position: "sticky",
+                top: 24,
+              }}
+            >
+              <div style={{ display: "grid", gap: 18 }}>
+                <div>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: 22,
+                      letterSpacing: "-0.02em",
+                      color: "#0f172a",
+                    }}
+                  >
+                    Ticket details
+                  </h2>
+
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      color: "#64748b",
+                      fontSize: 14,
+                    }}
+                  >
+                    Quick actions and requester context.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 14,
+                    padding: 18,
+                    borderRadius: 18,
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div>
+                    <p
                       style={{
-                        marginTop: 12,
-                        whiteSpace: "pre-wrap",
-                        lineHeight: 1.7,
+                        margin: 0,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#64748b",
+                      }}
+                    >
+                      Requester
+                    </p>
+
+                    <p
+                      style={{
+                        margin: "8px 0 0",
+                        color: "#0f172a",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {typedTicket.name}
+                    </p>
+
+                    <p
+                      style={{
+                        margin: "4px 0 0",
+                        color: "#475569",
+                        fontSize: 14,
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {typedTicket.email}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#64748b",
+                      }}
+                    >
+                      Ticket ID
+                    </p>
+
+                    <p
+                      style={{
+                        margin: "8px 0 0",
+                        color: "#0f172a",
+                        fontWeight: 700,
+                        wordBreak: "break-all",
+                      }}
+                    >
+                      {typedTicket.id}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#64748b",
+                      }}
+                    >
+                      Created
+                    </p>
+
+                    <p
+                      style={{
+                        margin: "8px 0 0",
+                        color: "#0f172a",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {formatDateTime(typedTicket.created_at)}
+                    </p>
+                  </div>
+                </div>
+
+                <form action={updateTicketStatusAction}>
+                  <input type="hidden" name="ticketId" value={typedTicket.id} />
+                  <input type="hidden" name="returnTo" value={returnTo} />
+
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <label
+                      htmlFor="status"
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
                         color: "#122033",
                       }}
                     >
-                      {item.body?.trim() ? item.body : "(No message body captured)"}
-                    </div>
+                      Status
+                    </label>
+
+                    <select
+                      id="status"
+                      name="status"
+                      defaultValue={typedTicket.status}
+                      style={{
+                        padding: "13px 14px",
+                        borderRadius: 14,
+                        border: "1px solid #dbe4f0",
+                        background: "#fff",
+                        color: "#122033",
+                        font: "inherit",
+                        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.03)",
+                      }}
+                    >
+                      <option value="open">Open</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="closed">Closed</option>
+                    </select>
+
+                    <button
+                      type="submit"
+                      style={{
+                        appearance: "none",
+                        border: 0,
+                        cursor: "pointer",
+                        borderRadius: 14,
+                        padding: "13px 16px",
+                        fontWeight: 800,
+                        background: "#0f172a",
+                        color: "#ffffff",
+                        font: "inherit",
+                        boxShadow: "0 12px 24px rgba(15, 23, 42, 0.16)",
+                      }}
+                    >
+                      Update status
+                    </button>
                   </div>
-                ),
-              )}
-            </div>
-          )}
-        </section>
+                </form>
+
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 18,
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    color: "#1e3a8a",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      fontWeight: 800,
+                      fontSize: 14,
+                    }}
+                  >
+                    Helpdesk feel upgrade
+                  </p>
+
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      fontSize: 13,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    This layout now uses a conversation timeline, a cleaner
+                    sidebar, and a sticky reply composer so it feels much closer
+                    to Zendesk.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <style>{`
+          @media (max-width: 1100px) {
+            .container > div[style*="grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr)"] {
+              grid-template-columns: 1fr !important;
+            }
+          }
+
+          @media (max-width: 720px) {
+            textarea {
+              min-height: 160px !important;
+            }
+          }
+        `}</style>
       </div>
     </main>
   );
