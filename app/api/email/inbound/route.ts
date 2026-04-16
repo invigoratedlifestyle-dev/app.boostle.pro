@@ -290,6 +290,34 @@ function extractFallbackInboundBody(event: ResendReceivedEvent) {
   };
 }
 
+function isInternalSenderEmail(email: string | null) {
+  if (!email) return false;
+
+  return (
+    email === "support@boostle.pro" ||
+    /^reply\+[a-z0-9_-]+@boostle\.pro$/i.test(email) ||
+    email.endsWith("@boostle.pro")
+  );
+}
+
+function extractCustomerIdentityFromBody(input: {
+  bodyText: string;
+  bodyHtml: string | null;
+}) {
+  const combined = [input.bodyText, input.bodyHtml ?? ""].filter(Boolean).join("\n");
+
+  const emailMatch = combined.match(
+    /email:\s*([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i,
+  );
+
+  const nameMatch = combined.match(/name:\s*(.+)/i);
+
+  return {
+    email: emailMatch?.[1] ? normalizeEmail(emailMatch[1]) : null,
+    name: nameMatch?.[1]?.trim() ?? null,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.text();
@@ -336,12 +364,8 @@ export async function POST(request: NextRequest) {
       return badRequest("Invalid routing");
     }
 
-    const senderEmail = extractEmailAddress(verified.data.from);
-    if (!senderEmail) {
-      return badRequest("Missing sender email");
-    }
-
-    const senderName = extractDisplayName(verified.data.from);
+    let senderEmail = extractEmailAddress(verified.data.from);
+    let senderName = extractDisplayName(verified.data.from);
     const subject =
       (verified.data.subject ?? "(No subject)").trim() || "(No subject)";
     const providerMessageId =
@@ -352,6 +376,31 @@ export async function POST(request: NextRequest) {
 
     const bodyText = apiContent.bodyText || fallbackContent.bodyText;
     const bodyHtml = apiContent.bodyHtml || fallbackContent.bodyHtml;
+
+    if (isInternalSenderEmail(senderEmail)) {
+      const recovered = extractCustomerIdentityFromBody({
+        bodyText,
+        bodyHtml,
+      });
+
+      if (recovered.email) {
+        senderEmail = recovered.email;
+      }
+
+      if (recovered.name) {
+        senderName = recovered.name;
+      }
+
+      console.log("Recovered customer identity from inbound email body", {
+        originalFrom: verified.data.from,
+        recoveredEmail: senderEmail,
+        recoveredName: senderName,
+      });
+    }
+
+    if (!senderEmail) {
+      return badRequest("Missing sender email");
+    }
 
     const attachmentsJson = (verified.data.attachments ?? []).map(
       (attachment: ReceivedAttachmentMeta) => ({
@@ -461,7 +510,7 @@ export async function POST(request: NextRequest) {
 
     const { data: ticket, error: ticketLookupError } = await supabase
       .from("support_tickets")
-      .select("id, public_thread_id, status")
+      .select("id, public_thread_id, status, email")
       .eq("public_thread_id", routing.publicThreadId)
       .maybeSingle();
 
@@ -487,7 +536,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const typedTicket = ticket as TicketRow;
+    const typedTicket = ticket as TicketRow & { email?: string | null };
 
     const { error: insertReplyError } = await supabase
       .from("ticket_messages")
@@ -510,12 +559,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const ticketUpdate: Record<string, unknown> = {
+      status: "open",
+      updated_at: new Date().toISOString(),
+    };
+
+    if (
+      senderEmail &&
+      !isInternalSenderEmail(senderEmail) &&
+      typedTicket.email !== senderEmail
+    ) {
+      ticketUpdate.email = senderEmail;
+    }
+
     const { error: updateTicketError } = await supabase
       .from("support_tickets")
-      .update({
-        status: "open",
-        updated_at: new Date().toISOString(),
-      })
+      .update(ticketUpdate)
       .eq("id", typedTicket.id);
 
     if (updateTicketError) {
@@ -532,6 +591,7 @@ export async function POST(request: NextRequest) {
       ticketId: typedTicket.id,
       publicThreadId: typedTicket.public_thread_id,
       capturedBody: Boolean(bodyText),
+      senderEmail,
     });
   } catch (err) {
     console.error("Inbound email webhook failed", err);
