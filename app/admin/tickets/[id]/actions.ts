@@ -223,7 +223,7 @@ async function resolveReplyRecipient(input: {
 export async function updateTicketStatusAction(formData: FormData) {
   const ticketId = String(formData.get("ticketId") ?? "");
   const status = String(formData.get("status") ?? "");
-  const returnTo = String(formData.get("returnTo") ?? "/admin");
+  const returnTo = String(formData.get("returnTo") ?? "/dashboard");
 
   if (!ticketId || !isTicketStatus(status)) {
     redirect(returnTo);
@@ -243,8 +243,8 @@ export async function updateTicketStatusAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  revalidatePath("/admin");
-  revalidatePath(`/admin/tickets/${ticketId}`);
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/tickets/${ticketId}`);
   redirect(returnTo);
 }
 
@@ -373,7 +373,7 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error(statusError.message);
   }
 
-  revalidatePath("/admin");
-  revalidatePath(`/admin/tickets/${ticketId}`);
-  redirect(`/admin/tickets/${ticketId}?sent=1`);
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/tickets/${ticketId}`);
+  redirect(`/dashboard/tickets/${ticketId}?sent=1`);
 }

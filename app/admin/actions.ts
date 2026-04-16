@@ -28,7 +28,7 @@ function isTicketStatus(value: string): value is TicketStatus {
 
 export async function bulkUpdateTicketsAction(formData: FormData) {
   const action = String(formData.get("bulkAction") ?? "");
-  const returnTo = String(formData.get("returnTo") ?? "/admin");
+  const returnTo = String(formData.get("returnTo") ?? "/dashboard");
 
   const selectedIds = formData
     .getAll("selectedIds")
@@ -55,6 +55,6 @@ export async function bulkUpdateTicketsAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  revalidatePath("/admin");
+  revalidatePath("/dashboard");
   redirect(returnTo);
 }

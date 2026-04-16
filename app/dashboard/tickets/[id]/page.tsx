@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   sendTicketReplyAction,
   updateTicketStatusAction,
-} from "./actions";
+} from "../../../admin/tickets/[id]/actions";
 
 type TicketStatus = "open" | "in_progress" | "closed";
 
@@ -264,7 +264,7 @@ export default async function AdminTicketDetailPage({
   });
 
   const typedTicket = ticket as Ticket;
-  const returnTo = `/admin/tickets/${typedTicket.id}`;
+  const returnTo = `/dashboard/tickets/${typedTicket.id}`;
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
 
@@ -390,7 +390,7 @@ export default async function AdminTicketDetailPage({
             </div>
 
             <Link
-              href="/admin"
+              href="/dashboard"
               style={{
                 padding: "10px 14px",
                 borderRadius: 10,

@@ -198,7 +198,7 @@ function buildDashboardUrl(
     searchParams.set("error", params.error);
   }
 
-  return `/admin?${searchParams.toString()}`;
+  return `/dashboard?${searchParams.toString()}`;
 }
 
 async function getTickets(): Promise<SupportTicket[]> {
@@ -283,10 +283,10 @@ async function applyBulkTicketAction(formData: FormData) {
       );
     }
 
-    revalidatePath("/admin");
+    revalidatePath("/dashboard");
 
     for (const id of selectedIds) {
-      revalidatePath(`/admin/tickets/${id}`);
+      revalidatePath(`/dashboard/tickets/${id}`);
     }
 
     redirect(
@@ -315,10 +315,10 @@ async function applyBulkTicketAction(formData: FormData) {
       );
     }
 
-    revalidatePath("/admin");
+    revalidatePath("/dashboard");
 
     for (const id of selectedIds) {
-      revalidatePath(`/admin/tickets/${id}`);
+      revalidatePath(`/dashboard/tickets/${id}`);
     }
 
     redirect(
@@ -343,10 +343,10 @@ async function applyBulkTicketAction(formData: FormData) {
     );
   }
 
-  revalidatePath("/admin");
+  revalidatePath("/dashboard");
 
   for (const id of selectedIds) {
-    revalidatePath(`/admin/tickets/${id}`);
+    revalidatePath(`/dashboardtickets/${id}`);
   }
 
   redirect(
@@ -775,7 +775,7 @@ function QueueTable({
                 ) : null}
 
                 <Link
-                  href={`/admin/tickets/${ticket.id}`}
+                  href={`/dashboard/tickets/${ticket.id}`}
                   style={{
                     color: "#0f172a",
                     textDecoration: "none",
@@ -809,7 +809,7 @@ function QueueTable({
                 }}
               >
                 <Link
-                  href={`/admin/tickets/${ticket.id}`}
+                  href={`/dashboard/tickets/${ticket.id}`}
                   style={{
                     display: "block",
                     textDecoration: "none",
@@ -932,7 +932,7 @@ export default async function AdminDashboardPage({
   const authed = await isAdminAuthenticated();
 
   if (!authed) {
-    redirect("/admin/login");
+    redirect("/dashboard/login");
   }
 
   const resolvedSearchParams = searchParams ? await searchParams : {};

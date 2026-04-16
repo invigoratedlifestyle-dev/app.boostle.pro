@@ -30,7 +30,7 @@ export default function AdminLoginPage() {
         throw new Error(data.error || "Login failed.");
       }
 
-      window.location.href = "/admin";
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally {

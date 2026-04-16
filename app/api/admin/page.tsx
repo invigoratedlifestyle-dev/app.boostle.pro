@@ -60,7 +60,7 @@ export default async function AdminDashboardPage() {
   const authed = await isAdminAuthenticated();
 
   if (!authed) {
-    redirect("/admin/login");
+    redirect("/dashboard/login");
   }
 
   const tickets = await getTickets();

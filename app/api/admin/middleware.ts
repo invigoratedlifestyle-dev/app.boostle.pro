@@ -6,8 +6,8 @@ const ADMIN_SESSION_COOKIE = "boostle_admin_session";
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isAdminRoute = pathname.startsWith("/admin");
-  const isAdminLoginPage = pathname === "/admin/login";
+  const isAdminRoute = pathname.startsWith("/dashboard");
+  const isAdminLoginPage = pathname === "/dashboard/login";
 
   if (!isAdminRoute) {
     return NextResponse.next();
@@ -21,7 +21,7 @@ export function middleware(request: NextRequest) {
   const expected = process.env.ADMIN_DASHBOARD_PASSWORD;
 
   if (!expected || session !== expected) {
-    const loginUrl = new URL("/admin/login", request.url);
+    const loginUrl = new URL("/dashboard/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -29,5 +29,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/dashboard/:path*"],
 };

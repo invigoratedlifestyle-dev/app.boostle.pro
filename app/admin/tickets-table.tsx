@@ -234,7 +234,7 @@ export default function TicketsTable({
                     </div>
 
                     <Link
-                      href={`/admin/tickets/${ticket.id}`}
+                      href={`/dashboard/tickets/${ticket.id}`}
                       style={{
                         flex: 1,
                         textDecoration: "none",
