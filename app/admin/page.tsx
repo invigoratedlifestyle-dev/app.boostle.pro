@@ -175,8 +175,10 @@ export default async function AdminDashboardPage() {
       }}
     >
       <div
-        className="mx-auto w-full max-w-7xl px-6 py-10"
+        className="mx-auto px-6 py-10"
         style={{
+          width: "100%",
+          maxWidth: 1200,
           display: "grid",
           gap: 24,
         }}
@@ -273,7 +275,7 @@ export default async function AdminDashboardPage() {
         </section>
 
         <section
-          className="grid gap-4 md:grid-cols-4"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
           style={{ alignItems: "stretch" }}
         >
           {[
