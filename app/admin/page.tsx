@@ -115,6 +115,176 @@ function getTabHref({
   });
 }
 
+const styles = {
+  pageShell: {
+    minHeight: "100vh",
+    background:
+      "radial-gradient(circle at top, rgba(37, 99, 235, 0.08), transparent 26%), linear-gradient(180deg, #f8fbff 0%, #eef4ff 40%, #f8fafc 100%)",
+    color: "#0f172a",
+  } as const,
+  container: {
+    maxWidth: "1200px",
+    margin: "0 auto",
+    padding: "32px 20px 56px",
+  } as const,
+  topRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "16px",
+    flexWrap: "wrap",
+  } as const,
+  eyebrow: {
+    margin: "0 0 6px",
+    fontSize: "13px",
+    fontWeight: 800,
+    letterSpacing: "0.15em",
+    textTransform: "uppercase",
+    color: "#2563eb",
+  } as const,
+  pageTitle: {
+    margin: 0,
+    fontSize: "34px",
+    lineHeight: 1.02,
+    letterSpacing: "-0.03em",
+  } as const,
+  pageCopy: {
+    margin: "10px 0 0",
+    fontSize: "16px",
+    lineHeight: 1.65,
+    color: "#475569",
+  } as const,
+  topActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  } as const,
+  secondaryLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "44px",
+    padding: "0 16px",
+    borderRadius: "14px",
+    background: "#ffffff",
+    border: "1px solid #dbe7f5",
+    color: "#0f172a",
+    textDecoration: "none",
+    fontWeight: 700,
+    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+  } as const,
+  statsGrid: {
+    marginTop: "22px",
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "14px",
+  } as const,
+  statCard: {
+    background: "rgba(255, 255, 255, 0.92)",
+    border: "1px solid rgba(148, 163, 184, 0.2)",
+    borderRadius: "20px",
+    padding: "18px",
+    boxShadow: "0 14px 40px rgba(15, 23, 42, 0.06)",
+  } as const,
+  statLabel: {
+    display: "block",
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+  } as const,
+  statValue: {
+    display: "block",
+    marginTop: "10px",
+    fontSize: "28px",
+    lineHeight: 1,
+    letterSpacing: "-0.03em",
+    color: "#0f172a",
+  } as const,
+  toolbar: {
+    marginTop: "20px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "14px",
+    flexWrap: "wrap",
+  } as const,
+  searchForm: {
+    display: "flex",
+    gap: "10px",
+    flex: "1 1 460px",
+    flexWrap: "wrap",
+  } as const,
+  searchInput: {
+    flex: "1 1 280px",
+    minHeight: "48px",
+    borderRadius: "14px",
+    border: "1px solid #cbd5e1",
+    padding: "0 14px",
+    font: "inherit",
+    color: "#0f172a",
+    background: "#ffffff",
+    outline: "none",
+  } as const,
+  searchButton: {
+    minHeight: "48px",
+    border: 0,
+    borderRadius: "14px",
+    padding: "0 16px",
+    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+    color: "#ffffff",
+    font: "inherit",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxShadow: "0 14px 30px rgba(37, 99, 235, 0.2)",
+  } as const,
+  sortActions: {
+    display: "flex",
+    gap: "8px",
+  } as const,
+  sortLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "44px",
+    padding: "0 14px",
+    borderRadius: "999px",
+    textDecoration: "none",
+    fontSize: "14px",
+    fontWeight: 700,
+    background: "#e2e8f0",
+    color: "#334155",
+  } as const,
+  sortLinkActive: {
+    background: "#0f172a",
+    color: "#ffffff",
+  } as const,
+  tabs: {
+    marginTop: "18px",
+    marginBottom: "18px",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+  } as const,
+  tab: {
+    padding: "8px 14px",
+    borderRadius: "999px",
+    fontSize: "14px",
+    fontWeight: 600,
+    background: "#f1f5f9",
+    color: "#334155",
+    textDecoration: "none",
+  } as const,
+  tabActive: {
+    background: "#0f172a",
+    color: "#ffffff",
+  } as const,
+  tableWrap: {
+    marginTop: "8px",
+  } as const,
+};
+
 export default async function AdminDashboardPage({
   searchParams,
 }: {
@@ -202,76 +372,128 @@ export default async function AdminDashboardPage({
 
   const tabs: TicketStatusFilter[] = ["all", "open", "in_progress", "closed"];
 
+  const responsiveCss = `
+    @media (max-width: 1024px) {
+      .admin-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .admin-container {
+        padding: 20px 14px 40px !important;
+      }
+
+      .admin-stats-grid {
+        grid-template-columns: 1fr !important;
+      }
+
+      .admin-page-title {
+        font-size: 28px !important;
+      }
+
+      .admin-toolbar {
+        align-items: stretch !important;
+      }
+
+      .admin-search-form {
+        flex-direction: column !important;
+      }
+
+      .admin-search-button {
+        width: 100% !important;
+      }
+
+      .admin-sort-actions {
+        width: 100% !important;
+      }
+
+      .admin-sort-link {
+        flex: 1 1 0 !important;
+      }
+    }
+  `;
+
   return (
-    <main className="page-shell">
-      <div className="container">
-        <div className="top-row">
+    <main style={styles.pageShell}>
+      <div className="admin-container" style={styles.container}>
+        <div style={styles.topRow}>
           <div>
-            <p className="eyebrow">Boostle Support</p>
-            <h1 className="page-title">Ticket Dashboard</h1>
-            <p className="page-copy">
+            <p style={styles.eyebrow}>Boostle Support</p>
+            <h1 className="admin-page-title" style={styles.pageTitle}>
+              Ticket Dashboard
+            </h1>
+            <p style={styles.pageCopy}>
               View, filter, and open support tickets submitted from
               app.boostle.pro.
             </p>
           </div>
 
-          <div className="top-actions">
-            <Link href="/" className="secondary-link">
+          <div style={styles.topActions}>
+            <Link href="/" style={styles.secondaryLink}>
               Open support form
             </Link>
           </div>
         </div>
 
-        <div className="stats-grid">
-          <div className="stat-card">
-            <span className="stat-label">Total tickets</span>
-            <strong className="stat-value">
+        <div className="admin-stats-grid" style={styles.statsGrid}>
+          <div style={styles.statCard}>
+            <span style={styles.statLabel}>Total tickets</span>
+            <strong style={styles.statValue}>
               {counts.open + counts.in_progress + counts.closed}
             </strong>
           </div>
 
-          <div className="stat-card">
-            <span className="stat-label">Open</span>
-            <strong className="stat-value">{counts.open}</strong>
+          <div style={styles.statCard}>
+            <span style={styles.statLabel}>Open</span>
+            <strong style={styles.statValue}>{counts.open}</strong>
           </div>
 
-          <div className="stat-card">
-            <span className="stat-label">In progress</span>
-            <strong className="stat-value">{counts.in_progress}</strong>
+          <div style={styles.statCard}>
+            <span style={styles.statLabel}>In progress</span>
+            <strong style={styles.statValue}>{counts.in_progress}</strong>
           </div>
 
-          <div className="stat-card">
-            <span className="stat-label">Needs attention</span>
-            <strong className="stat-value">{needsAttentionCount}</strong>
+          <div style={styles.statCard}>
+            <span style={styles.statLabel}>Needs attention</span>
+            <strong style={styles.statValue}>{needsAttentionCount}</strong>
           </div>
         </div>
 
-        <div className="toolbar">
-          <form method="get" className="search-form">
+        <div className="admin-toolbar" style={styles.toolbar}>
+          <form method="get" className="admin-search-form" style={styles.searchForm}>
             <input
               type="text"
               name="q"
               defaultValue={q}
               placeholder="Search name, email, or subject"
-              className="search-input"
+              style={styles.searchInput}
             />
             <input type="hidden" name="sort" value={sort} />
             {status !== "all" ? (
               <input type="hidden" name="status" value={status} />
             ) : null}
-            <button type="submit" className="search-button">
+            <button
+              type="submit"
+              className="admin-search-button"
+              style={styles.searchButton}
+            >
               Search
             </button>
           </form>
 
-          <div className="sort-actions">
+          <div className="admin-sort-actions" style={styles.sortActions}>
             <Link
               href={buildAdminUrl({
                 q: q || undefined,
                 status: status === "all" ? undefined : status,
                 sort: "newest",
               })}
-              className={sort === "newest" ? "sort-link active" : "sort-link"}
+              className="admin-sort-link"
+              style={{
+                ...styles.sortLink,
+                ...(sort === "newest" ? styles.sortLinkActive : {}),
+              }}
             >
               Newest
             </Link>
@@ -282,14 +504,18 @@ export default async function AdminDashboardPage({
                 status: status === "all" ? undefined : status,
                 sort: "oldest",
               })}
-              className={sort === "oldest" ? "sort-link active" : "sort-link"}
+              className="admin-sort-link"
+              style={{
+                ...styles.sortLink,
+                ...(sort === "oldest" ? styles.sortLinkActive : {}),
+              }}
             >
               Oldest
             </Link>
           </div>
         </div>
 
-        <div className="tabs">
+        <div style={styles.tabs}>
           {tabs.map((tab) => {
             const active = tab === status;
 
@@ -297,7 +523,10 @@ export default async function AdminDashboardPage({
               <Link
                 key={tab}
                 href={getTabHref({ activeStatus: tab, q, sort })}
-                className={active ? "tab active" : "tab"}
+                style={{
+                  ...styles.tab,
+                  ...(active ? styles.tabActive : {}),
+                }}
               >
                 {getTabLabel(tab)} ({getCountForStatus(tab, counts)})
               </Link>
@@ -305,252 +534,12 @@ export default async function AdminDashboardPage({
           })}
         </div>
 
-        <div className="table-wrap">
+        <div style={styles.tableWrap}>
           <TicketsTable tickets={tickets} returnTo={returnTo} />
         </div>
       </div>
 
-      <style jsx>{`
-        .page-shell {
-          min-height: 100vh;
-          background:
-            radial-gradient(
-              circle at top,
-              rgba(37, 99, 235, 0.08),
-              transparent 26%
-            ),
-            linear-gradient(180deg, #f8fbff 0%, #eef4ff 40%, #f8fafc 100%);
-          color: #0f172a;
-        }
-
-        .container {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 32px 20px 56px;
-        }
-
-        .top-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 16px;
-          flex-wrap: wrap;
-        }
-
-        .eyebrow {
-          margin: 0 0 6px;
-          font-size: 13px;
-          font-weight: 800;
-          letter-spacing: 0.15em;
-          text-transform: uppercase;
-          color: #2563eb;
-        }
-
-        .page-title {
-          margin: 0;
-          font-size: 34px;
-          line-height: 1.02;
-          letter-spacing: -0.03em;
-        }
-
-        .page-copy {
-          margin: 10px 0 0;
-          font-size: 16px;
-          line-height: 1.65;
-          color: #475569;
-        }
-
-        .top-actions {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .secondary-link {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 44px;
-          padding: 0 16px;
-          border-radius: 14px;
-          background: #ffffff;
-          border: 1px solid #dbe7f5;
-          color: #0f172a;
-          text-decoration: none;
-          font-weight: 700;
-          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-        }
-
-        .stats-grid {
-          margin-top: 22px;
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .stat-card {
-          background: rgba(255, 255, 255, 0.92);
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          border-radius: 20px;
-          padding: 18px;
-          box-shadow: 0 14px 40px rgba(15, 23, 42, 0.06);
-        }
-
-        .stat-label {
-          display: block;
-          font-size: 13px;
-          font-weight: 700;
-          color: #64748b;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-
-        .stat-value {
-          display: block;
-          margin-top: 10px;
-          font-size: 28px;
-          line-height: 1;
-          letter-spacing: -0.03em;
-          color: #0f172a;
-        }
-
-        .toolbar {
-          margin-top: 20px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 14px;
-          flex-wrap: wrap;
-        }
-
-        .search-form {
-          display: flex;
-          gap: 10px;
-          flex: 1 1 460px;
-          flex-wrap: wrap;
-        }
-
-        .search-input {
-          flex: 1 1 280px;
-          min-height: 48px;
-          border-radius: 14px;
-          border: 1px solid #cbd5e1;
-          padding: 0 14px;
-          font: inherit;
-          color: #0f172a;
-          background: #ffffff;
-          outline: none;
-        }
-
-        .search-input:focus {
-          border-color: #60a5fa;
-          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
-        }
-
-        .search-button {
-          min-height: 48px;
-          border: 0;
-          border-radius: 14px;
-          padding: 0 16px;
-          background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-          color: #ffffff;
-          font: inherit;
-          font-weight: 800;
-          cursor: pointer;
-          box-shadow: 0 14px 30px rgba(37, 99, 235, 0.2);
-        }
-
-        .sort-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .sort-link {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 44px;
-          padding: 0 14px;
-          border-radius: 999px;
-          text-decoration: none;
-          font-size: 14px;
-          font-weight: 700;
-          background: #e2e8f0;
-          color: #334155;
-        }
-
-        .sort-link.active {
-          background: #0f172a;
-          color: #ffffff;
-        }
-
-        .tabs {
-          margin-top: 18px;
-          margin-bottom: 18px;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .tab {
-          padding: 8px 14px;
-          border-radius: 999px;
-          font-size: 14px;
-          font-weight: 600;
-          background: #f1f5f9;
-          color: #334155;
-          text-decoration: none;
-        }
-
-        .tab.active {
-          background: #0f172a;
-          color: #ffffff;
-        }
-
-        .table-wrap {
-          margin-top: 8px;
-        }
-
-        @media (max-width: 1024px) {
-          .stats-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-        }
-
-        @media (max-width: 720px) {
-          .container {
-            padding: 20px 14px 40px;
-          }
-
-          .stats-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .page-title {
-            font-size: 28px;
-          }
-
-          .toolbar {
-            align-items: stretch;
-          }
-
-          .search-form {
-            flex-direction: column;
-          }
-
-          .search-button {
-            width: 100%;
-          }
-
-          .sort-actions {
-            width: 100%;
-          }
-
-          .sort-link {
-            flex: 1 1 0;
-          }
-        }
-      `}</style>
+      <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />
     </main>
   );
 }
