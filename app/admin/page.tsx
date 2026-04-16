@@ -411,58 +411,32 @@ function BulkActionsBar({
   return (
     <div
       style={{
-        padding: 16,
+        padding: 14,
         background: "#ffffff",
       }}
     >
-      <div
-        style={{
-          marginBottom: 12,
-        }}
-      >
-        <h3
-          style={{
-            margin: 0,
-            fontSize: 15,
-            fontWeight: 800,
-            color: "#0f172a",
-          }}
-        >
-          Bulk actions
-        </h3>
-
-        <p
-          style={{
-            margin: "6px 0 0",
-            fontSize: 13,
-            color: "#64748b",
-          }}
-        >
-          Select tickets from the table above, then bulk reassign, resolve, or
-          delete.
-        </p>
-      </div>
+      <input type="hidden" name="currentQueue" value={currentQueue} />
 
       <div
         style={{
           display: "grid",
           gridTemplateColumns:
-            "minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto",
-          gap: 12,
+            "minmax(180px, 220px) minmax(220px, 1fr) minmax(180px, 220px) auto",
+          gap: 10,
           alignItems: "end",
         }}
       >
-        <input type="hidden" name="currentQueue" value={currentQueue} />
-
         <div>
           <label
             htmlFor="bulkAction"
             style={{
               display: "block",
               marginBottom: 6,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: 700,
-              color: "#475569",
+              color: "#64748b",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
             }}
           >
             Action
@@ -496,9 +470,11 @@ function BulkActionsBar({
             style={{
               display: "block",
               marginBottom: 6,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: 700,
-              color: "#475569",
+              color: "#64748b",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
             }}
           >
             Technician
@@ -528,9 +504,11 @@ function BulkActionsBar({
             style={{
               display: "block",
               marginBottom: 6,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: 700,
-              color: "#475569",
+              color: "#64748b",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
             }}
           >
             Queue
@@ -575,7 +553,7 @@ function BulkActionsBar({
             minHeight: 42,
           }}
         >
-          Apply bulk action
+          Apply
         </button>
       </div>
     </div>
@@ -696,26 +674,16 @@ function QueueTable({
         }}
       >
         <div>
-          <label
+          <input
+            type="checkbox"
+            id="selectAllTickets"
+            aria-label="Select all tickets"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
+              width: 16,
+              height: 16,
               cursor: "pointer",
-              userSelect: "none",
             }}
-          >
-            <input
-              type="checkbox"
-              id="selectAllTickets"
-              style={{
-                width: 16,
-                height: 16,
-                cursor: "pointer",
-              }}
-            />
-            <span>Select all</span>
-          </label>
+          />
         </div>
         <div>#</div>
         <div>Status</div>
@@ -1225,25 +1193,6 @@ export default async function AdminDashboardPage({
                 boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
               }}
             >
-              <div
-                style={{
-                  padding: "12px 14px",
-                  borderBottom: "1px solid #dbe4f0",
-                  background: "#f8fafc",
-                }}
-              >
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color: "#0f172a",
-                  }}
-                >
-                  Bulk actions
-                </h2>
-              </div>
-
               <BulkActionsBar currentQueue={selectedQueue} />
             </section>
           </form>
@@ -1329,7 +1278,7 @@ export default async function AdminDashboardPage({
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
 
-          div[style*="grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto"] {
+          div[style*="grid-template-columns: minmax(180px, 220px) minmax(220px, 1fr) minmax(180px, 220px) auto"] {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
@@ -1339,7 +1288,7 @@ export default async function AdminDashboardPage({
             grid-template-columns: 1fr !important;
           }
 
-          div[style*="grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto"] {
+          div[style*="grid-template-columns: minmax(180px, 220px) minmax(220px, 1fr) minmax(180px, 220px) auto"] {
             grid-template-columns: 1fr !important;
           }
 
