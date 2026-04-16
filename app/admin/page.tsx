@@ -217,7 +217,9 @@ async function getTickets(): Promise<SupportTicket[]> {
 async function applyBulkTicketAction(formData: FormData) {
   "use server";
 
-  const currentQueue = normalizeQueueKey(String(formData.get("currentQueue") ?? ""));
+  const currentQueue = normalizeQueueKey(
+    String(formData.get("currentQueue") ?? ""),
+  );
   const action = String(formData.get("bulkAction") ?? "") as BulkActionKey;
   const selectedIds = formData
     .getAll("ticketIds")
@@ -407,23 +409,19 @@ function BulkActionsBar({
   currentQueue: QueueKey;
 }) {
   return (
-    <section
+    <div
       style={{
+        padding: 16,
+        borderTop: "1px solid #dbe4f0",
         background: "#ffffff",
-        border: "1px solid #dbe4f0",
-        borderRadius: 14,
-        overflow: "hidden",
-        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
       }}
     >
       <div
         style={{
-          padding: "14px 16px",
-          borderBottom: "1px solid #dbe4f0",
-          background: "#f8fafc",
+          marginBottom: 12,
         }}
       >
-        <h2
+        <h3
           style={{
             margin: 0,
             fontSize: 15,
@@ -432,7 +430,7 @@ function BulkActionsBar({
           }}
         >
           Bulk actions
-        </h2>
+        </h3>
 
         <p
           style={{
@@ -441,163 +439,157 @@ function BulkActionsBar({
             color: "#64748b",
           }}
         >
-          Select tickets below, then bulk assign, resolve, or delete them.
+          Select tickets from the table, then bulk reassign, resolve, or delete.
         </p>
       </div>
 
       <div
         style={{
-          padding: 16,
-          borderBottom: "1px solid #dbe4f0",
-          background: "#ffffff",
+          display: "grid",
+          gridTemplateColumns:
+            "minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto",
+          gap: 12,
+          alignItems: "end",
         }}
       >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto",
-            gap: 12,
-            alignItems: "end",
-          }}
-        >
-          <input type="hidden" name="currentQueue" value={currentQueue} />
+        <input type="hidden" name="currentQueue" value={currentQueue} />
 
-          <div>
-            <label
-              htmlFor="bulkAction"
-              style={{
-                display: "block",
-                marginBottom: 6,
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#475569",
-              }}
-            >
-              Action
-            </label>
-
-            <select
-              id="bulkAction"
-              name="bulkAction"
-              defaultValue="assign"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                background: "#ffffff",
-                color: "#0f172a",
-                fontWeight: 600,
-                border: "1px solid #dbe4f0",
-                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
-                cursor: "pointer",
-              }}
-            >
-              <option value="assign">Assign / reassign</option>
-              <option value="resolve">Resolve selected</option>
-              <option value="delete">Delete selected</option>
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="bulkTechnician"
-              style={{
-                display: "block",
-                marginBottom: 6,
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#475569",
-              }}
-            >
-              Technician
-            </label>
-
-            <input
-              id="bulkTechnician"
-              name="bulkTechnician"
-              placeholder="e.g. Jamie Walker"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                background: "#ffffff",
-                color: "#0f172a",
-                fontWeight: 600,
-                border: "1px solid #dbe4f0",
-                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="bulkQueue"
-              style={{
-                display: "block",
-                marginBottom: 6,
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#475569",
-              }}
-            >
-              Queue
-            </label>
-
-            <select
-              id="bulkQueue"
-              name="bulkQueue"
-              defaultValue=""
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                background: "#ffffff",
-                color: "#0f172a",
-                fontWeight: 600,
-                border: "1px solid #dbe4f0",
-                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
-                cursor: "pointer",
-              }}
-            >
-              <option value="">Leave unchanged</option>
-              {QUEUE_OPTIONS.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            type="submit"
+        <div>
+          <label
+            htmlFor="bulkAction"
             style={{
-              padding: "10px 14px",
-              borderRadius: 10,
-              background: "#0f172a",
-              color: "#ffffff",
-              fontWeight: 800,
-              border: "none",
-              boxShadow: "0 10px 20px rgba(15, 23, 42, 0.14)",
-              cursor: "pointer",
-              minHeight: 42,
+              display: "block",
+              marginBottom: 6,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#475569",
             }}
           >
-            Apply bulk action
-          </button>
+            Action
+          </label>
+
+          <select
+            id="bulkAction"
+            name="bulkAction"
+            defaultValue="assign"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "#ffffff",
+              color: "#0f172a",
+              fontWeight: 600,
+              border: "1px solid #dbe4f0",
+              boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+              cursor: "pointer",
+            }}
+          >
+            <option value="assign">Assign / reassign</option>
+            <option value="resolve">Resolve selected</option>
+            <option value="delete">Delete selected</option>
+          </select>
         </div>
+
+        <div>
+          <label
+            htmlFor="bulkTechnician"
+            style={{
+              display: "block",
+              marginBottom: 6,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#475569",
+            }}
+          >
+            Technician
+          </label>
+
+          <input
+            id="bulkTechnician"
+            name="bulkTechnician"
+            placeholder="e.g. Jamie Walker"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "#ffffff",
+              color: "#0f172a",
+              fontWeight: 600,
+              border: "1px solid #dbe4f0",
+              boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="bulkQueue"
+            style={{
+              display: "block",
+              marginBottom: 6,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#475569",
+            }}
+          >
+            Queue
+          </label>
+
+          <select
+            id="bulkQueue"
+            name="bulkQueue"
+            defaultValue=""
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "#ffffff",
+              color: "#0f172a",
+              fontWeight: 600,
+              border: "1px solid #dbe4f0",
+              boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+              cursor: "pointer",
+            }}
+          >
+            <option value="">Leave unchanged</option>
+            {QUEUE_OPTIONS.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="submit"
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: "#0f172a",
+            color: "#ffffff",
+            fontWeight: 800,
+            border: "none",
+            boxShadow: "0 10px 20px rgba(15, 23, 42, 0.14)",
+            cursor: "pointer",
+            minHeight: 42,
+          }}
+        >
+          Apply bulk action
+        </button>
       </div>
-    </section>
+    </div>
   );
 }
 
 function QueueTable({
   title,
   tickets,
+  currentQueue,
 }: {
   title: string;
   tickets: SupportTicket[];
+  currentQueue: QueueKey;
 }) {
   return (
     <section
@@ -649,6 +641,49 @@ function QueueTable({
         </span>
       </div>
 
+      <BulkActionsBar currentQueue={currentQueue} />
+
+      <div
+        id="selectionSummary"
+        style={{
+          display: "none",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "12px 14px",
+          background: "#eff6ff",
+          borderTop: "1px solid #dbe4f0",
+          borderBottom: "1px solid #dbe4f0",
+        }}
+      >
+        <p
+          style={{
+            margin: 0,
+            fontSize: 14,
+            fontWeight: 700,
+            color: "#1d4ed8",
+          }}
+        >
+          <span id="selectedCount">0</span> selected
+        </p>
+
+        <button
+          type="button"
+          id="clearSelectionButton"
+          style={{
+            padding: "8px 12px",
+            borderRadius: 10,
+            background: "#ffffff",
+            color: "#0f172a",
+            fontWeight: 700,
+            border: "1px solid #bfdbfe",
+            cursor: "pointer",
+          }}
+        >
+          Clear selection
+        </button>
+      </div>
+
       <div
         style={{
           display: "grid",
@@ -665,7 +700,28 @@ function QueueTable({
           textTransform: "uppercase",
         }}
       >
-        <div>Select</div>
+        <div>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              id="selectAllTickets"
+              style={{
+                width: 16,
+                height: 16,
+                cursor: "pointer",
+              }}
+            />
+            <span>Select all</span>
+          </label>
+        </div>
         <div>#</div>
         <div>Status</div>
         <div>Subject</div>
@@ -722,6 +778,7 @@ function QueueTable({
                   name="ticketIds"
                   value={ticket.id}
                   aria-label={`Select ticket #${ticket.ticket_number}`}
+                  className="ticket-select-checkbox"
                   style={{
                     width: 16,
                     height: 16,
@@ -1159,15 +1216,77 @@ export default async function AdminDashboardPage({
           </section>
 
           <form action={applyBulkTicketAction} style={{ display: "grid", gap: 18 }}>
-            <BulkActionsBar currentQueue={selectedQueue} />
-
             <QueueTable
               title={getQueueLabel(selectedQueue)}
               tickets={ticketsInSelectedQueue}
+              currentQueue={selectedQueue}
             />
           </form>
         </div>
       </div>
+
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (() => {
+              const selectAll = document.getElementById("selectAllTickets");
+              const checkboxes = Array.from(document.querySelectorAll(".ticket-select-checkbox"));
+              const selectionSummary = document.getElementById("selectionSummary");
+              const selectedCount = document.getElementById("selectedCount");
+              const clearButton = document.getElementById("clearSelectionButton");
+
+              if (!selectAll || checkboxes.length === 0 || !selectionSummary || !selectedCount) {
+                return;
+              }
+
+              const updateSelectionState = () => {
+                const checked = checkboxes.filter((checkbox) => checkbox.checked);
+                const count = checked.length;
+
+                selectedCount.textContent = String(count);
+                selectionSummary.style.display = count > 0 ? "flex" : "none";
+
+                if (count === 0) {
+                  selectAll.indeterminate = false;
+                  selectAll.checked = false;
+                  return;
+                }
+
+                if (count === checkboxes.length) {
+                  selectAll.indeterminate = false;
+                  selectAll.checked = true;
+                  return;
+                }
+
+                selectAll.checked = false;
+                selectAll.indeterminate = true;
+              };
+
+              selectAll.addEventListener("change", () => {
+                checkboxes.forEach((checkbox) => {
+                  checkbox.checked = selectAll.checked;
+                });
+                updateSelectionState();
+              });
+
+              checkboxes.forEach((checkbox) => {
+                checkbox.addEventListener("change", updateSelectionState);
+              });
+
+              if (clearButton) {
+                clearButton.addEventListener("click", () => {
+                  checkboxes.forEach((checkbox) => {
+                    checkbox.checked = false;
+                  });
+                  updateSelectionState();
+                });
+              }
+
+              updateSelectionState();
+            })();
+          `,
+        }}
+      />
 
       <style>{`
         @media (max-width: 1240px) {
