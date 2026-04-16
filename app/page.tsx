@@ -65,6 +65,21 @@ const quickCategories = [
   },
 ];
 
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function isValidHttpUrl(value: string): boolean {
+  if (!value.trim()) return true;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export default function HomePage() {
   const router = useRouter();
   const supportEmail =
@@ -84,10 +99,7 @@ export default function HomePage() {
     return Boolean(
       form.name.trim() &&
         form.email.trim() &&
-        form.storeUrl.trim() &&
-        form.appName.trim() &&
         form.subject.trim() &&
-        form.category.trim() &&
         form.message.trim(),
     );
   }, [form]);
@@ -121,10 +133,42 @@ export default function HomePage() {
     event.preventDefault();
     setStatus({ type: "idle", message: "" });
 
-    if (!canSubmit) {
+    if (!form.name.trim()) {
       setStatus({
         type: "error",
-        message: "Please complete all required fields.",
+        message: "Please enter your name.",
+      });
+      return;
+    }
+
+    if (!isValidEmail(form.email)) {
+      setStatus({
+        type: "error",
+        message: "Please enter a valid email address.",
+      });
+      return;
+    }
+
+    if (!form.subject.trim()) {
+      setStatus({
+        type: "error",
+        message: "Please enter a subject.",
+      });
+      return;
+    }
+
+    if (!form.message.trim()) {
+      setStatus({
+        type: "error",
+        message: "Please enter a message.",
+      });
+      return;
+    }
+
+    if (!isValidHttpUrl(form.storeUrl)) {
+      setStatus({
+        type: "error",
+        message: "Please enter a valid Shopify store URL.",
       });
       return;
     }
@@ -137,7 +181,15 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          storeUrl: form.storeUrl.trim(),
+          appName: form.appName.trim(),
+          subject: form.subject.trim(),
+          category: form.category.trim(),
+          message: form.message.trim(),
+        }),
       });
 
       const data = (await response.json()) as SupportApiResponse;
@@ -195,8 +247,8 @@ export default function HomePage() {
               <h1>Support built for Shopify merchants using Boostle</h1>
               <p className="hero-text">
                 Get help with installation, theme placement, billing, and
-                troubleshooting for your Boostle app. Submit a request with your
-                store details and we’ll point you in the right direction faster.
+                troubleshooting for your Boostle app. Submit a request with the
+                right detail and we’ll point you in the right direction faster.
               </p>
 
               <div className="hero-points">
@@ -223,7 +275,7 @@ export default function HomePage() {
             <aside className="hero-side-panel">
               <h2>Before you submit</h2>
               <ul>
-                <li>Include your Shopify store URL</li>
+                <li>Include your Shopify store URL if relevant</li>
                 <li>Tell us what you expected to happen</li>
                 <li>Tell us what happened instead</li>
                 <li>Mention the page, theme, or product involved</li>
@@ -309,8 +361,10 @@ export default function HomePage() {
                     value={form.storeUrl}
                     onChange={(e) => updateField("storeUrl", e.target.value)}
                     placeholder="https://your-store.myshopify.com"
-                    required
                   />
+                  <span className="field-help">
+                    Optional, but helpful for troubleshooting.
+                  </span>
                 </div>
 
                 <div className="field">
@@ -319,7 +373,6 @@ export default function HomePage() {
                     id="appName"
                     value={form.appName}
                     onChange={(e) => updateField("appName", e.target.value)}
-                    required
                   >
                     <option value="Boostle: Labels">Boostle: Labels</option>
                     <option value="Boostle Support">Boostle Support</option>
@@ -345,7 +398,6 @@ export default function HomePage() {
                     id="category"
                     value={form.category}
                     onChange={(e) => updateField("category", e.target.value)}
-                    required
                   >
                     <option value="Installation">Installation</option>
                     <option value="Billing">Billing</option>
@@ -671,6 +723,12 @@ export default function HomePage() {
           font-size: 14px;
           font-weight: 700;
           color: #0f172a;
+        }
+
+        .field-help {
+          font-size: 12px;
+          line-height: 1.5;
+          color: #64748b;
         }
 
         .field input,

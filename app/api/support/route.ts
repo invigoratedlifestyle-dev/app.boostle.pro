@@ -230,7 +230,7 @@ async function createSupportTicket(input: {
     message,
     status: "open",
     priority: "normal",
-    source: "web",
+    source: "website",
     public_thread_id: publicThreadId,
   };
 
@@ -378,13 +378,15 @@ function buildTicketSummaryText(input: {
   const { ticketLabel, category, appName, subject, storeUrl, message, supportEmail } =
     input;
 
+  const storeLine = storeUrl ? `Store: ${storeUrl}` : "Store: Not provided";
+
   return [
     `We’ve received your support request for ${appName}.`,
     "",
     `Ticket: ${ticketLabel}`,
     `Subject: ${subject}`,
     `Category: ${category}`,
-    `Store: ${storeUrl}`,
+    storeLine,
     "",
     "What happens next:",
     "- We’ve logged your request successfully.",
@@ -425,7 +427,7 @@ function buildTicketSummaryHtml(input: {
   const safeCategory = escapeHtml(category);
   const safeAppName = escapeHtml(appName);
   const safeSubject = escapeHtml(subject);
-  const safeStoreUrl = escapeHtml(storeUrl);
+  const safeStoreUrl = storeUrl ? escapeHtml(storeUrl) : "Not provided";
   const safeMessage = escapeHtml(message).replaceAll("\n", "<br />");
   const safeSupportEmail = escapeHtml(supportEmail);
 
@@ -488,7 +490,7 @@ function buildTicketSummaryHtml(input: {
 
             <div style="font-size:15px;line-height:1.75;color:#1e293b;">
               We’ll review your request and reply as soon as possible. If you need to add more detail, just reply to
-              <a href="mailto:${safeSupportEmail}" style="color:#2563eb;text-decoration:none;font-weight:700;"> ${safeSupportEmail}</a>.
+              <a href="mailto:${safeSupportEmail}" style="color:#2563eb;text-decoration:none;font-weight:700;">${safeSupportEmail}</a>.
             </div>
           </div>
         </div>
@@ -551,7 +553,7 @@ async function sendSupportNotificationEmail(input: {
       `Ticket: ${ticketLabel}`,
       `Name: ${customerName}`,
       `Email: ${customerEmail}`,
-      `Store URL: ${storeUrl}`,
+      `Store URL: ${storeUrl || "Not provided"}`,
       `App: ${appName}`,
       `Category: ${category}`,
       `Subject: ${subject}`,
@@ -565,7 +567,7 @@ async function sendSupportNotificationEmail(input: {
         <p><strong>Ticket:</strong> ${escapeHtml(ticketLabel)}</p>
         <p><strong>Name:</strong> ${escapeHtml(customerName)}</p>
         <p><strong>Email:</strong> ${escapeHtml(customerEmail)}</p>
-        <p><strong>Store URL:</strong> ${escapeHtml(storeUrl)}</p>
+        <p><strong>Store URL:</strong> ${escapeHtml(storeUrl || "Not provided")}</p>
         <p><strong>App:</strong> ${escapeHtml(appName)}</p>
         <p><strong>Category:</strong> ${escapeHtml(category)}</p>
         <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
@@ -646,7 +648,7 @@ export async function POST(request: NextRequest) {
     const category = sanitizeText(body.category) || "General";
     const message = sanitizeText(body.message);
 
-    if (!name || !email || !storeUrl || !subject || !message) {
+    if (!name || !email || !subject || !message) {
       return NextResponse.json<SupportApiResponse>(
         { ok: false, error: "Please complete all required fields." },
         { status: 400 },
@@ -660,7 +662,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isValidHttpUrl(storeUrl)) {
+    if (storeUrl && !isValidHttpUrl(storeUrl)) {
       return NextResponse.json<SupportApiResponse>(
         { ok: false, error: "Please enter a valid Shopify store URL." },
         { status: 400 },
@@ -687,6 +689,18 @@ export async function POST(request: NextRequest) {
       supportTicketResult.error &&
       isMissingRelationError(supportTicketResult.error, "support_tickets")
     ) {
+      if (!storeUrl) {
+        console.error(
+          "Failed creating legacy ticket because storeUrl is required by legacy schema.",
+          supportTicketResult.error,
+        );
+
+        return NextResponse.json<SupportApiResponse>(
+          { ok: false, error: "Failed creating support ticket." },
+          { status: 500 },
+        );
+      }
+
       const legacyTicketResult = await createLegacyTicket({
         supabase,
         name,
@@ -699,7 +713,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!legacyTicketResult.data) {
-        console.error("Failed creating ticket", legacyTicketResult.error);
+        console.error("Failed creating legacy ticket", legacyTicketResult.error);
 
         return NextResponse.json<SupportApiResponse>(
           { ok: false, error: "Failed creating support ticket." },
@@ -710,7 +724,7 @@ export async function POST(request: NextRequest) {
       createdTicket = legacyTicketResult.data;
       ticketTableName = "tickets";
     } else {
-      console.error("Failed creating ticket", supportTicketResult.error);
+      console.error("Failed creating support ticket", supportTicketResult.error);
 
       return NextResponse.json<SupportApiResponse>(
         { ok: false, error: "Failed creating support ticket." },
@@ -722,7 +736,7 @@ export async function POST(request: NextRequest) {
       const ticketMessageValues: Record<string, unknown> = {
         ticket_id: createdTicket.id,
         direction: "inbound",
-        source: "web",
+        source: "website",
         sender_type: "customer",
         sender_name: name,
         sender_email: email,
@@ -736,11 +750,9 @@ export async function POST(request: NextRequest) {
       });
 
       if (createMessageError) {
-        console.error("Failed creating ticket message", createMessageError);
-
-        return NextResponse.json<SupportApiResponse>(
-          { ok: false, error: "Ticket created, but failed saving the message body." },
-          { status: 500 },
+        console.error(
+          "Ticket created successfully, but failed creating ticket message row",
+          createMessageError,
         );
       }
     }
@@ -754,7 +766,7 @@ export async function POST(request: NextRequest) {
           })
         : null;
 
-    const resend = new Resend(getEnv("RESEND_API_KEY"));
+    const resendApiKey = getOptionalEnv("RESEND_API_KEY");
     const supportEmail =
       getOptionalEnv("SUPPORT_EMAIL") ||
       getOptionalEnv("NEXT_PUBLIC_SUPPORT_EMAIL") ||
@@ -772,42 +784,48 @@ export async function POST(request: NextRequest) {
           ? `Ticket ${createdTicket.public_thread_id || createdTicket.id}`
           : "Support ticket";
 
-    try {
-      await sendSupportNotificationEmail({
-        resend,
-        to: supportEmail,
-        from: fromAddress,
-        replyTo: email,
-        customerName: name,
-        customerEmail: email,
-        storeUrl,
-        appName,
-        subject,
-        category,
-        message,
-        ticketLabel,
-      });
-    } catch (error) {
-      console.error("Failed sending internal support notification", error);
-    }
+    if (resendApiKey) {
+      const resend = new Resend(resendApiKey);
 
-    try {
-      await sendCustomerConfirmationEmail({
-        resend,
-        to: email,
-        from: fromAddress,
-        replyTo: supportEmail,
-        customerName: name,
-        ticketLabel,
-        category,
-        appName,
-        subject,
-        storeUrl,
-        message,
-        supportEmail,
-      });
-    } catch (error) {
-      console.error("Failed sending customer confirmation email", error);
+      try {
+        await sendSupportNotificationEmail({
+          resend,
+          to: supportEmail,
+          from: fromAddress,
+          replyTo: email,
+          customerName: name,
+          customerEmail: email,
+          storeUrl,
+          appName,
+          subject,
+          category,
+          message,
+          ticketLabel,
+        });
+      } catch (error) {
+        console.error("Failed sending internal support notification", error);
+      }
+
+      try {
+        await sendCustomerConfirmationEmail({
+          resend,
+          to: email,
+          from: fromAddress,
+          replyTo: supportEmail,
+          customerName: name,
+          ticketLabel,
+          category,
+          appName,
+          subject,
+          storeUrl,
+          message,
+          supportEmail,
+        });
+      } catch (error) {
+        console.error("Failed sending customer confirmation email", error);
+      }
+    } else {
+      console.warn("RESEND_API_KEY is not set. Skipping support emails.");
     }
 
     return NextResponse.json<SupportApiResponse>({
