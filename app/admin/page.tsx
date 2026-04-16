@@ -4,6 +4,14 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import type { SupportTicket } from "@/types/support";
 
+type QueueKey = "support" | "developer" | "billing";
+
+const QUEUE_OPTIONS: Array<{ key: QueueKey; label: string }> = [
+  { key: "support", label: "Support Queue" },
+  { key: "developer", label: "Developer Queue" },
+  { key: "billing", label: "Billing Queue" },
+];
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
@@ -98,15 +106,73 @@ function getPriorityStyle(priority: SupportTicket["priority"]) {
   }
 }
 
-function getQueueGroups(tickets: SupportTicket[]) {
-  const myTickets = tickets.filter((ticket) => ticket.status === "in_progress");
+function asRecord(ticket: SupportTicket) {
+  return ticket as unknown as Record<string, unknown>;
+}
 
-  const unassigned = tickets.filter((ticket) => ticket.status === "open");
+function getStringField(
+  ticket: SupportTicket,
+  fieldNames: string[],
+): string | null {
+  const record = asRecord(ticket);
 
-  return {
-    myTickets,
-    unassigned,
-  };
+  for (const fieldName of fieldNames) {
+    const value = record[fieldName];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function normalizeQueueKey(value: string | null | undefined): QueueKey {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (normalized === "developer" || normalized === "developer queue") {
+    return "developer";
+  }
+
+  if (normalized === "billing" || normalized === "billing queue") {
+    return "billing";
+  }
+
+  return "support";
+}
+
+function getTicketQueue(ticket: SupportTicket): QueueKey {
+  const queueValue = getStringField(ticket, [
+    "queue",
+    "queue_name",
+    "team",
+    "department",
+  ]);
+
+  return normalizeQueueKey(queueValue);
+}
+
+function getTechnician(ticket: SupportTicket) {
+  const technicianValue = getStringField(ticket, [
+    "technician_name",
+    "assigned_to_name",
+    "owner_name",
+    "assigned_name",
+    "technician",
+    "assignee_name",
+    "assigned_to_email",
+    "owner_email",
+    "assignee_email",
+    "assigned_to",
+    "owner",
+    "assignee",
+  ]);
+
+  return technicianValue ?? "Unassigned";
+}
+
+function getQueueLabel(queue: QueueKey) {
+  return QUEUE_OPTIONS.find((option) => option.key === queue)?.label ?? "Support Queue";
 }
 
 async function getTickets(): Promise<SupportTicket[]> {
@@ -167,17 +233,23 @@ function SummaryTile({
   );
 }
 
-function QueueSection({
+function QueueTable({
   title,
-  count,
   tickets,
 }: {
   title: string;
-  count: number;
   tickets: SupportTicket[];
 }) {
   return (
-    <div style={{ borderTop: "1px solid #e5edf5" }}>
+    <section
+      style={{
+        background: "#ffffff",
+        border: "1px solid #dbe4f0",
+        borderRadius: 14,
+        overflow: "hidden",
+        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+      }}
+    >
       <div
         style={{
           display: "flex",
@@ -185,28 +257,19 @@ function QueueSection({
           gap: 10,
           padding: "12px 14px",
           background: "#f8fafc",
-          borderBottom: "1px solid #e5edf5",
+          borderBottom: "1px solid #dbe4f0",
         }}
       >
-        <span
-          style={{
-            fontSize: 14,
-            color: "#64748b",
-          }}
-        >
-          ▾
-        </span>
-
-        <h3
+        <h2
           style={{
             margin: 0,
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: 800,
             color: "#0f172a",
           }}
         >
           {title}
-        </h3>
+        </h2>
 
         <span
           style={{
@@ -223,8 +286,34 @@ function QueueSection({
             fontWeight: 700,
           }}
         >
-          {count}
+          {tickets.length}
         </span>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px",
+          alignItems: "center",
+          padding: "12px 14px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #dbe4f0",
+          color: "#475569",
+          fontSize: 12,
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+        }}
+      >
+        <div />
+        <div>#</div>
+        <div>Status</div>
+        <div>Subject</div>
+        <div>Customer</div>
+        <div>Technician</div>
+        <div>Priority</div>
+        <div>Created</div>
       </div>
 
       {tickets.length === 0 ? (
@@ -242,6 +331,7 @@ function QueueSection({
         tickets.map((ticket) => {
           const statusStyle = getStatusStyle(ticket.status);
           const priorityStyle = getPriorityStyle(ticket.priority);
+          const technician = getTechnician(ticket);
 
           return (
             <Link
@@ -250,7 +340,7 @@ function QueueSection({
               style={{
                 display: "grid",
                 gridTemplateColumns:
-                  "42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)",
+                  "42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px",
                 alignItems: "center",
                 gap: 0,
                 padding: "0 14px",
@@ -382,13 +472,25 @@ function QueueSection({
 
               <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
                   minWidth: 0,
+                  paddingRight: 16,
                 }}
               >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 14,
+                    color: technician === "Unassigned" ? "#64748b" : "#0f172a",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {technician}
+                </p>
+              </div>
+
+              <div>
                 <span
                   style={{
                     ...priorityStyle,
@@ -399,52 +501,62 @@ function QueueSection({
                     fontSize: 12,
                     fontWeight: 800,
                     whiteSpace: "nowrap",
-                    flexShrink: 0,
                   }}
                 >
                   {priorityStyle.label}
                 </span>
+              </div>
 
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "#64748b",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    textAlign: "right",
-                    flex: 1,
-                    minWidth: 0,
-                  }}
-                >
-                  {formatDate(ticket.created_at)}
-                </span>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#64748b",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {formatDate(ticket.created_at)}
               </div>
             </Link>
           );
         })
       )}
-    </div>
+    </section>
   );
 }
 
-export default async function AdminDashboardPage() {
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ queue?: string }>;
+}) {
   const authed = await isAdminAuthenticated();
 
   if (!authed) {
     redirect("/admin/login");
   }
 
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const selectedQueue = normalizeQueueKey(resolvedSearchParams.queue);
+
   const tickets = await getTickets();
-  const openCount = tickets.filter((ticket) => ticket.status === "open").length;
-  const unresolvedCount = tickets.filter(
+
+  const ticketsInSelectedQueue = tickets.filter(
+    (ticket) => getTicketQueue(ticket) === selectedQueue,
+  );
+
+  const unresolvedCount = ticketsInSelectedQueue.filter(
     (ticket) => ticket.status !== "resolved" && ticket.status !== "closed",
   ).length;
-  const dueSoonCount = tickets.filter(
+
+  const dueSoonCount = ticketsInSelectedQueue.filter(
     (ticket) => ticket.priority === "urgent",
   ).length;
 
-  const { myTickets, unassigned } = getQueueGroups(tickets);
+  const unassignedCount = ticketsInSelectedQueue.filter(
+    (ticket) => getTechnician(ticket) === "Unassigned",
+  ).length;
 
   return (
     <main
@@ -466,7 +578,7 @@ export default async function AdminDashboardPage() {
         <div
           style={{
             width: "100%",
-            maxWidth: 1320,
+            maxWidth: 1440,
             display: "grid",
             gap: 18,
           }}
@@ -475,7 +587,7 @@ export default async function AdminDashboardPage() {
             style={{
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "center",
+              alignItems: "flex-end",
               gap: 16,
               flexWrap: "wrap",
             }}
@@ -515,23 +627,91 @@ export default async function AdminDashboardPage() {
               </h1>
             </div>
 
-            <form action="/api/admin/logout" method="post">
-              <button
-                type="submit"
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <form
+                method="get"
                 style={{
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  background: "#ffffff",
-                  color: "#0f172a",
-                  fontWeight: 700,
-                  border: "1px solid #dbe4f0",
-                  boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
-                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flexWrap: "wrap",
                 }}
               >
-                Log out
-              </button>
-            </form>
+                <label
+                  htmlFor="queue"
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "#475569",
+                  }}
+                >
+                  Queue
+                </label>
+
+                <select
+                  id="queue"
+                  name="queue"
+                  defaultValue={selectedQueue}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 600,
+                    border: "1px solid #dbe4f0",
+                    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {QUEUE_OPTIONS.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="submit"
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 700,
+                    border: "1px solid #dbe4f0",
+                    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                    cursor: "pointer",
+                  }}
+                >
+                  View queue
+                </button>
+              </form>
+
+              <form action="/api/admin/logout" method="post">
+                <button
+                  type="submit"
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 700,
+                    border: "1px solid #dbe4f0",
+                    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Log out
+                </button>
+              </form>
+            </div>
           </div>
 
           <section
@@ -549,111 +729,92 @@ export default async function AdminDashboardPage() {
                 gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
               }}
             >
-              <SummaryTile label="All Tickets" value={tickets.length} active />
-              <SummaryTile label="Unassigned" value={unassigned.length} />
+              <SummaryTile label="All Tickets" value={ticketsInSelectedQueue.length} active />
+              <SummaryTile label="Unassigned" value={unassignedCount} />
               <SummaryTile label="Unresolved" value={unresolvedCount} />
-              <SummaryTile
-                label="Due Soon"
-                value={dueSoonCount}
-                isLast
-              />
+              <SummaryTile label="Due Soon" value={dueSoonCount} isLast />
             </div>
           </section>
 
-          <section
-            style={{
-              background: "#ffffff",
-              border: "1px solid #dbe4f0",
-              borderRadius: 14,
-              overflow: "hidden",
-              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)",
-                alignItems: "center",
-                padding: "12px 14px",
-                background: "#f8fafc",
-                borderBottom: "1px solid #dbe4f0",
-                color: "#475569",
-                fontSize: 12,
-                fontWeight: 800,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-              }}
-            >
-              <div />
-              <div>#</div>
-              <div>Status</div>
-              <div>Subject</div>
-              <div>Customer</div>
-              <div>Priority / Created</div>
-            </div>
-
-            <QueueSection
-              title="My Tickets"
-              count={myTickets.length}
-              tickets={myTickets.slice(0, 8)}
-            />
-
-            <QueueSection
-              title="Unassigned"
-              count={unassigned.length}
-              tickets={unassigned.slice(0, 12)}
-            />
-          </section>
+          <QueueTable
+            title={getQueueLabel(selectedQueue)}
+            tickets={ticketsInSelectedQueue}
+          />
         </div>
       </div>
 
       <style>{`
+        @media (max-width: 1240px) {
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 90px 150px minmax(220px, 1fr) minmax(150px, 200px) minmax(130px, 170px) 110px 130px !important;
+          }
+
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 90px 150px minmax(220px, 1fr) minmax(150px, 200px) minmax(130px, 170px) 110px 130px !important;
+          }
+        }
+
         @media (max-width: 1120px) {
           main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
 
-        @media (max-width: 1040px) {
-          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
-            grid-template-columns: 42px 110px 170px minmax(220px, 1fr) minmax(180px, 220px) minmax(200px, 240px) !important;
-          }
-
-          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
-            grid-template-columns: 42px 110px 170px minmax(220px, 1fr) minmax(180px, 220px) minmax(200px, 240px) !important;
-          }
-        }
-
-        @media (max-width: 900px) {
+        @media (max-width: 980px) {
           main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
             grid-template-columns: 1fr !important;
           }
 
-          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
-            grid-template-columns: 42px 110px minmax(220px, 1fr) !important;
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 100px 160px minmax(220px, 1fr) 130px !important;
           }
 
-          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(3),
-          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(5),
-          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(6) {
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7) {
             display: none !important;
           }
 
-          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
-            grid-template-columns: 42px 110px minmax(220px, 1fr) !important;
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 100px 160px minmax(220px, 1fr) 130px !important;
             padding-top: 10px !important;
             padding-bottom: 10px !important;
           }
 
-          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(3),
-          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(5),
-          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(6) {
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7) {
             display: none !important;
           }
         }
 
-        a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"]:hover {
+        @media (max-width: 760px) {
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 100px minmax(220px, 1fr) !important;
+          }
+
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(3),
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7),
+          section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(8) {
+            display: none !important;
+          }
+
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 100px minmax(220px, 1fr) !important;
+          }
+
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(3),
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7),
+          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(8) {
+            display: none !important;
+          }
+        }
+
+        a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"]:hover {
           background: #f8fbff !important;
           transform: translateY(-1px);
           box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
