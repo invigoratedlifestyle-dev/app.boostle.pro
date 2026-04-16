@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import type { SupportTicket } from "@/types/support";
 
 type QueueKey = "support" | "developer" | "billing";
+type BulkActionKey = "assign" | "resolve" | "delete";
 
 const QUEUE_OPTIONS: Array<{ key: QueueKey; label: string }> = [
   { key: "support", label: "Support Queue" },
@@ -172,7 +174,31 @@ function getTechnician(ticket: SupportTicket) {
 }
 
 function getQueueLabel(queue: QueueKey) {
-  return QUEUE_OPTIONS.find((option) => option.key === queue)?.label ?? "Support Queue";
+  return (
+    QUEUE_OPTIONS.find((option) => option.key === queue)?.label ??
+    "Support Queue"
+  );
+}
+
+function buildDashboardUrl(
+  queue: QueueKey,
+  params?: {
+    notice?: string;
+    error?: string;
+  },
+) {
+  const searchParams = new URLSearchParams();
+  searchParams.set("queue", queue);
+
+  if (params?.notice) {
+    searchParams.set("notice", params.notice);
+  }
+
+  if (params?.error) {
+    searchParams.set("error", params.error);
+  }
+
+  return `/admin?${searchParams.toString()}`;
 }
 
 async function getTickets(): Promise<SupportTicket[]> {
@@ -186,6 +212,148 @@ async function getTickets(): Promise<SupportTicket[]> {
   }
 
   return data as SupportTicket[];
+}
+
+async function applyBulkTicketAction(formData: FormData) {
+  "use server";
+
+  const currentQueue = normalizeQueueKey(String(formData.get("currentQueue") ?? ""));
+  const action = String(formData.get("bulkAction") ?? "") as BulkActionKey;
+  const selectedIds = formData
+    .getAll("ticketIds")
+    .map((value) => String(value))
+    .filter(Boolean);
+
+  if (selectedIds.length === 0) {
+    redirect(
+      buildDashboardUrl(currentQueue, {
+        error: "Select at least one ticket first.",
+      }),
+    );
+  }
+
+  if (action !== "assign" && action !== "resolve" && action !== "delete") {
+    redirect(
+      buildDashboardUrl(currentQueue, {
+        error: "Choose a valid bulk action.",
+      }),
+    );
+  }
+
+  if (action === "assign") {
+    const technicianName = String(formData.get("bulkTechnician") ?? "").trim();
+    const queue = formData.get("bulkQueue");
+    const nextQueue =
+      typeof queue === "string" && queue.trim()
+        ? normalizeQueueKey(queue)
+        : null;
+
+    if (!technicianName && !nextQueue) {
+      redirect(
+        buildDashboardUrl(currentQueue, {
+          error: "Choose a technician, a queue, or both.",
+        }),
+      );
+    }
+
+    const updatePayload: Record<string, string> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (technicianName) {
+      updatePayload.technician_name = technicianName;
+    }
+
+    if (nextQueue) {
+      updatePayload.queue = nextQueue;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("support_tickets")
+      .update(updatePayload)
+      .in("id", selectedIds);
+
+    if (error) {
+      redirect(
+        buildDashboardUrl(currentQueue, {
+          error: `Bulk assign failed: ${error.message}`,
+        }),
+      );
+    }
+
+    revalidatePath("/admin");
+
+    for (const id of selectedIds) {
+      revalidatePath(`/admin/tickets/${id}`);
+    }
+
+    redirect(
+      buildDashboardUrl(nextQueue ?? currentQueue, {
+        notice: `Updated ${selectedIds.length} ticket${
+          selectedIds.length === 1 ? "" : "s"
+        }.`,
+      }),
+    );
+  }
+
+  if (action === "resolve") {
+    const { error } = await supabaseAdmin
+      .from("support_tickets")
+      .update({
+        status: "resolved",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", selectedIds);
+
+    if (error) {
+      redirect(
+        buildDashboardUrl(currentQueue, {
+          error: `Bulk resolve failed: ${error.message}`,
+        }),
+      );
+    }
+
+    revalidatePath("/admin");
+
+    for (const id of selectedIds) {
+      revalidatePath(`/admin/tickets/${id}`);
+    }
+
+    redirect(
+      buildDashboardUrl(currentQueue, {
+        notice: `Resolved ${selectedIds.length} ticket${
+          selectedIds.length === 1 ? "" : "s"
+        }.`,
+      }),
+    );
+  }
+
+  const { error } = await supabaseAdmin
+    .from("support_tickets")
+    .delete()
+    .in("id", selectedIds);
+
+  if (error) {
+    redirect(
+      buildDashboardUrl(currentQueue, {
+        error: `Bulk delete failed: ${error.message}`,
+      }),
+    );
+  }
+
+  revalidatePath("/admin");
+
+  for (const id of selectedIds) {
+    revalidatePath(`/admin/tickets/${id}`);
+  }
+
+  redirect(
+    buildDashboardUrl(currentQueue, {
+      notice: `Deleted ${selectedIds.length} ticket${
+        selectedIds.length === 1 ? "" : "s"
+      }.`,
+    }),
+  );
 }
 
 function SummaryTile({
@@ -230,6 +398,197 @@ function SummaryTile({
         {value}
       </p>
     </div>
+  );
+}
+
+function BulkActionsBar({
+  currentQueue,
+}: {
+  currentQueue: QueueKey;
+}) {
+  return (
+    <section
+      style={{
+        background: "#ffffff",
+        border: "1px solid #dbe4f0",
+        borderRadius: 14,
+        overflow: "hidden",
+        boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <div
+        style={{
+          padding: "14px 16px",
+          borderBottom: "1px solid #dbe4f0",
+          background: "#f8fafc",
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            fontSize: 15,
+            fontWeight: 800,
+            color: "#0f172a",
+          }}
+        >
+          Bulk actions
+        </h2>
+
+        <p
+          style={{
+            margin: "6px 0 0",
+            fontSize: 13,
+            color: "#64748b",
+          }}
+        >
+          Select tickets below, then bulk assign, resolve, or delete them.
+        </p>
+      </div>
+
+      <div
+        style={{
+          padding: 16,
+          borderBottom: "1px solid #dbe4f0",
+          background: "#ffffff",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto",
+            gap: 12,
+            alignItems: "end",
+          }}
+        >
+          <input type="hidden" name="currentQueue" value={currentQueue} />
+
+          <div>
+            <label
+              htmlFor="bulkAction"
+              style={{
+                display: "block",
+                marginBottom: 6,
+                fontSize: 13,
+                fontWeight: 700,
+                color: "#475569",
+              }}
+            >
+              Action
+            </label>
+
+            <select
+              id="bulkAction"
+              name="bulkAction"
+              defaultValue="assign"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "#ffffff",
+                color: "#0f172a",
+                fontWeight: 600,
+                border: "1px solid #dbe4f0",
+                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                cursor: "pointer",
+              }}
+            >
+              <option value="assign">Assign / reassign</option>
+              <option value="resolve">Resolve selected</option>
+              <option value="delete">Delete selected</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="bulkTechnician"
+              style={{
+                display: "block",
+                marginBottom: 6,
+                fontSize: 13,
+                fontWeight: 700,
+                color: "#475569",
+              }}
+            >
+              Technician
+            </label>
+
+            <input
+              id="bulkTechnician"
+              name="bulkTechnician"
+              placeholder="e.g. Jamie Walker"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "#ffffff",
+                color: "#0f172a",
+                fontWeight: 600,
+                border: "1px solid #dbe4f0",
+                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="bulkQueue"
+              style={{
+                display: "block",
+                marginBottom: 6,
+                fontSize: 13,
+                fontWeight: 700,
+                color: "#475569",
+              }}
+            >
+              Queue
+            </label>
+
+            <select
+              id="bulkQueue"
+              name="bulkQueue"
+              defaultValue=""
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "#ffffff",
+                color: "#0f172a",
+                fontWeight: 600,
+                border: "1px solid #dbe4f0",
+                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                cursor: "pointer",
+              }}
+            >
+              <option value="">Leave unchanged</option>
+              {QUEUE_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="submit"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              background: "#0f172a",
+              color: "#ffffff",
+              fontWeight: 800,
+              border: "none",
+              boxShadow: "0 10px 20px rgba(15, 23, 42, 0.14)",
+              cursor: "pointer",
+              minHeight: 42,
+            }}
+          >
+            Apply bulk action
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -306,7 +665,7 @@ function QueueTable({
           textTransform: "uppercase",
         }}
       >
-        <div />
+        <div>Select</div>
         <div>#</div>
         <div>Status</div>
         <div>Subject</div>
@@ -334,9 +693,8 @@ function QueueTable({
           const technician = getTechnician(ticket);
 
           return (
-            <Link
+            <div
               key={ticket.id}
-              href={`/admin/tickets/${ticket.id}`}
               style={{
                 display: "grid",
                 gridTemplateColumns:
@@ -344,9 +702,7 @@ function QueueTable({
                 alignItems: "center",
                 gap: 0,
                 padding: "0 14px",
-                minHeight: 48,
-                textDecoration: "none",
-                color: "inherit",
+                minHeight: 56,
                 background: "#ffffff",
                 borderBottom: "1px solid #eef2f7",
                 transition: "all 0.15s ease",
@@ -361,14 +717,15 @@ function QueueTable({
                   fontSize: 14,
                 }}
               >
-                <span
+                <input
+                  type="checkbox"
+                  name="ticketIds"
+                  value={ticket.id}
+                  aria-label={`Select ticket #${ticket.ticket_number}`}
                   style={{
                     width: 16,
                     height: 16,
-                    borderRadius: 4,
-                    border: "1px solid #cbd5e1",
-                    display: "inline-block",
-                    background: "#ffffff",
+                    cursor: "pointer",
                   }}
                 />
               </div>
@@ -396,7 +753,16 @@ function QueueTable({
                     }}
                   />
                 ) : null}
-                <span>#{ticket.ticket_number}</span>
+
+                <Link
+                  href={`/admin/tickets/${ticket.id}`}
+                  style={{
+                    color: "#0f172a",
+                    textDecoration: "none",
+                  }}
+                >
+                  #{ticket.ticket_number}
+                </Link>
               </div>
 
               <div>
@@ -422,19 +788,27 @@ function QueueTable({
                   paddingRight: 16,
                 }}
               >
-                <p
+                <Link
+                  href={`/admin/tickets/${ticket.id}`}
                   style={{
-                    margin: 0,
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color: "#0f172a",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
+                    display: "block",
+                    textDecoration: "none",
                   }}
                 >
-                  {ticket.subject}
-                </p>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: "#0f172a",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {ticket.subject}
+                  </p>
+                </Link>
               </div>
 
               <div
@@ -518,7 +892,7 @@ function QueueTable({
               >
                 {formatDate(ticket.created_at)}
               </div>
-            </Link>
+            </div>
           );
         })
       )}
@@ -529,7 +903,11 @@ function QueueTable({
 export default async function AdminDashboardPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ queue?: string }>;
+  searchParams?: Promise<{
+    queue?: string;
+    notice?: string;
+    error?: string;
+  }>;
 }) {
   const authed = await isAdminAuthenticated();
 
@@ -539,6 +917,14 @@ export default async function AdminDashboardPage({
 
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const selectedQueue = normalizeQueueKey(resolvedSearchParams.queue);
+  const notice =
+    typeof resolvedSearchParams.notice === "string"
+      ? resolvedSearchParams.notice
+      : "";
+  const error =
+    typeof resolvedSearchParams.error === "string"
+      ? resolvedSearchParams.error
+      : "";
 
   const tickets = await getTickets();
 
@@ -714,6 +1100,38 @@ export default async function AdminDashboardPage({
             </div>
           </div>
 
+          {notice ? (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: 12,
+                background: "#ecfeff",
+                color: "#0f766e",
+                border: "1px solid #a5f3fc",
+                fontSize: 14,
+                fontWeight: 700,
+              }}
+            >
+              {notice}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: 12,
+                background: "#fef2f2",
+                color: "#b91c1c",
+                border: "1px solid #fca5a5",
+                fontSize: 14,
+                fontWeight: 700,
+              }}
+            >
+              {error}
+            </div>
+          ) : null}
+
           <section
             style={{
               background: "#ffffff",
@@ -729,17 +1147,25 @@ export default async function AdminDashboardPage({
                 gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
               }}
             >
-              <SummaryTile label="All Tickets" value={ticketsInSelectedQueue.length} active />
+              <SummaryTile
+                label="All Tickets"
+                value={ticketsInSelectedQueue.length}
+                active
+              />
               <SummaryTile label="Unassigned" value={unassignedCount} />
               <SummaryTile label="Unresolved" value={unresolvedCount} />
               <SummaryTile label="Due Soon" value={dueSoonCount} isLast />
             </div>
           </section>
 
-          <QueueTable
-            title={getQueueLabel(selectedQueue)}
-            tickets={ticketsInSelectedQueue}
-          />
+          <form action={applyBulkTicketAction} style={{ display: "grid", gap: 18 }}>
+            <BulkActionsBar currentQueue={selectedQueue} />
+
+            <QueueTable
+              title={getQueueLabel(selectedQueue)}
+              tickets={ticketsInSelectedQueue}
+            />
+          </form>
         </div>
       </div>
 
@@ -749,13 +1175,17 @@ export default async function AdminDashboardPage({
             grid-template-columns: 42px 90px 150px minmax(220px, 1fr) minmax(150px, 200px) minmax(130px, 170px) 110px 130px !important;
           }
 
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
             grid-template-columns: 42px 90px 150px minmax(220px, 1fr) minmax(150px, 200px) minmax(130px, 170px) 110px 130px !important;
           }
         }
 
         @media (max-width: 1120px) {
           main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+
+          div[style*="grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto"] {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
@@ -765,8 +1195,18 @@ export default async function AdminDashboardPage({
             grid-template-columns: 1fr !important;
           }
 
+          div[style*="grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) minmax(180px, 220px) auto"] {
+            grid-template-columns: 1fr !important;
+          }
+
           section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
             grid-template-columns: 42px 100px 160px minmax(220px, 1fr) 130px !important;
+          }
+
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 100px 160px minmax(220px, 1fr) 130px !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
           }
 
           section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
@@ -775,21 +1215,19 @@ export default async function AdminDashboardPage({
             display: none !important;
           }
 
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
-            grid-template-columns: 42px 100px 160px minmax(220px, 1fr) 130px !important;
-            padding-top: 10px !important;
-            padding-bottom: 10px !important;
-          }
-
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7) {
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7) {
             display: none !important;
           }
         }
 
         @media (max-width: 760px) {
           section > div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
+            grid-template-columns: 42px 100px minmax(220px, 1fr) !important;
+          }
+
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
             grid-template-columns: 42px 100px minmax(220px, 1fr) !important;
           }
 
@@ -801,23 +1239,17 @@ export default async function AdminDashboardPage({
             display: none !important;
           }
 
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] {
-            grid-template-columns: 42px 100px minmax(220px, 1fr) !important;
-          }
-
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(3),
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7),
-          a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(8) {
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(3),
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(5),
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(6),
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(7),
+          div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"] > div:nth-child(8) {
             display: none !important;
           }
         }
 
-        a[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"]:hover {
+        div[style*="grid-template-columns: 42px 100px 160px minmax(260px, 1fr) minmax(170px, 220px) minmax(150px, 190px) 120px 150px"]:hover {
           background: #f8fbff !important;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
         }
       `}</style>
     </main>
