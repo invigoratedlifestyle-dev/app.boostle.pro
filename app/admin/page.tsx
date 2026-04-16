@@ -99,38 +99,14 @@ function getPriorityStyle(priority: SupportTicket["priority"]) {
 }
 
 function getQueueGroups(tickets: SupportTicket[]) {
-  const myTickets = tickets.filter(
-    (ticket) => ticket.status === "in_progress" || ticket.status === "open",
-  );
-  const unassigned = tickets.filter(
-    (ticket) => ticket.status !== "closed" && ticket.status !== "resolved",
-  );
+  const myTickets = tickets.filter((ticket) => ticket.status === "in_progress");
+
+  const unassigned = tickets.filter((ticket) => ticket.status === "open");
 
   return {
     myTickets,
     unassigned,
   };
-}
-
-function getMessagePreview(ticket: SupportTicket) {
-  const source =
-    typeof ticket.message === "string" && ticket.message.trim()
-      ? ticket.message
-      : typeof ticket.subject === "string"
-        ? ticket.subject
-        : "";
-
-  const normalized = source.replace(/\s+/g, " ").trim();
-
-  if (!normalized) {
-    return "No message preview available.";
-  }
-
-  if (normalized.length <= 72) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, 69)}...`;
 }
 
 async function getTickets(): Promise<SupportTicket[]> {
@@ -150,16 +126,18 @@ function SummaryTile({
   label,
   value,
   active = false,
+  isLast = false,
 }: {
   label: string;
   value: number;
   active?: boolean;
+  isLast?: boolean;
 }) {
   return (
     <div
       style={{
-        padding: "14px 18px",
-        borderRight: "1px solid #dbe4f0",
+        padding: "10px 14px",
+        borderRight: isLast ? "none" : "1px solid #dbe4f0",
         background: active ? "#f8fbff" : "#ffffff",
         boxShadow: active ? "inset 0 -2px 0 #0ea5e9" : "none",
       }}
@@ -177,8 +155,8 @@ function SummaryTile({
 
       <p
         style={{
-          margin: "8px 0 0",
-          fontSize: 18,
+          margin: "6px 0 0",
+          fontSize: 16,
           fontWeight: 800,
           color: value === 0 ? "#94a3b8" : "#0f172a",
         }}
@@ -205,7 +183,7 @@ function QueueSection({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          padding: "14px 18px",
+          padding: "12px 14px",
           background: "#f8fafc",
           borderBottom: "1px solid #e5edf5",
         }}
@@ -252,7 +230,7 @@ function QueueSection({
       {tickets.length === 0 ? (
         <div
           style={{
-            padding: "18px",
+            padding: "16px 14px",
             fontSize: 14,
             color: "#64748b",
             background: "#ffffff",
@@ -264,7 +242,6 @@ function QueueSection({
         tickets.map((ticket) => {
           const statusStyle = getStatusStyle(ticket.status);
           const priorityStyle = getPriorityStyle(ticket.priority);
-          const preview = getMessagePreview(ticket);
 
           return (
             <Link
@@ -272,22 +249,24 @@ function QueueSection({
               href={`/admin/tickets/${ticket.id}`}
               style={{
                 display: "grid",
-                gridTemplateColumns: "52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px",
+                gridTemplateColumns:
+                  "42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)",
                 alignItems: "center",
                 gap: 0,
-                padding: "0 18px",
-                minHeight: 60,
+                padding: "0 14px",
+                minHeight: 48,
                 textDecoration: "none",
                 color: "inherit",
                 background: "#ffffff",
                 borderBottom: "1px solid #eef2f7",
+                transition: "all 0.15s ease",
               }}
             >
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 12,
+                  gap: 10,
                   color: "#94a3b8",
                   fontSize: 14,
                 }}
@@ -306,13 +285,28 @@ function QueueSection({
 
               <div
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
                   fontSize: 14,
                   fontWeight: 700,
                   color: "#0f172a",
                   whiteSpace: "nowrap",
                 }}
               >
-                #{ticket.ticket_number}
+                {ticket.status === "open" ? (
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#22c55e",
+                      display: "inline-block",
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : null}
+                <span>#{ticket.ticket_number}</span>
               </div>
 
               <div>
@@ -341,8 +335,8 @@ function QueueSection({
                 <p
                   style={{
                     margin: 0,
-                    fontSize: 14,
-                    fontWeight: 700,
+                    fontSize: 15,
+                    fontWeight: 800,
                     color: "#0f172a",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
@@ -350,19 +344,6 @@ function QueueSection({
                   }}
                 >
                   {ticket.subject}
-                </p>
-
-                <p
-                  style={{
-                    margin: "4px 0 0",
-                    fontSize: 12,
-                    color: "#64748b",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {preview}
                 </p>
               </div>
 
@@ -404,7 +385,8 @@ function QueueSection({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  gap: 10,
+                  gap: 12,
+                  minWidth: 0,
                 }}
               >
                 <span
@@ -417,6 +399,7 @@ function QueueSection({
                     fontSize: 12,
                     fontWeight: 800,
                     whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}
                 >
                   {priorityStyle.label}
@@ -427,6 +410,11 @@ function QueueSection({
                     fontSize: 12,
                     color: "#64748b",
                     whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    textAlign: "right",
+                    flex: 1,
+                    minWidth: 0,
                   }}
                 >
                   {formatDate(ticket.created_at)}
@@ -478,7 +466,7 @@ export default async function AdminDashboardPage() {
         <div
           style={{
             width: "100%",
-            maxWidth: 1280,
+            maxWidth: 1320,
             display: "grid",
             gap: 18,
           }}
@@ -523,7 +511,7 @@ export default async function AdminDashboardPage() {
                   color: "#0f172a",
                 }}
               >
-                My Queue
+                Dashboard
               </h1>
             </div>
 
@@ -564,7 +552,11 @@ export default async function AdminDashboardPage() {
               <SummaryTile label="All Tickets" value={tickets.length} active />
               <SummaryTile label="Unassigned" value={unassigned.length} />
               <SummaryTile label="Unresolved" value={unresolvedCount} />
-              <SummaryTile label="Due Soon" value={dueSoonCount} />
+              <SummaryTile
+                label="Due Soon"
+                value={dueSoonCount}
+                isLast
+              />
             </div>
           </section>
 
@@ -580,9 +572,10 @@ export default async function AdminDashboardPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px",
+                gridTemplateColumns:
+                  "42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)",
                 alignItems: "center",
-                padding: "12px 18px",
+                padding: "12px 14px",
                 background: "#f8fafc",
                 borderBottom: "1px solid #dbe4f0",
                 color: "#475569",
@@ -616,48 +609,54 @@ export default async function AdminDashboardPage() {
       </div>
 
       <style>{`
-        @media (max-width: 1100px) {
-          .queue-hide-table {
-            display: none !important;
-          }
-        }
-
-        @media (max-width: 980px) {
+        @media (max-width: 1120px) {
           main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
+        }
 
-          a[style*="grid-template-columns: 52px 110px 170px"] {
-            grid-template-columns: 52px 110px minmax(0, 1fr) !important;
-            padding-top: 12px !important;
-            padding-bottom: 12px !important;
+        @media (max-width: 1040px) {
+          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
+            grid-template-columns: 42px 110px 170px minmax(220px, 1fr) minmax(180px, 220px) minmax(200px, 240px) !important;
           }
 
-          a[style*="grid-template-columns: 52px 110px 170px"] > div:nth-child(3),
-          a[style*="grid-template-columns: 52px 110px 170px"] > div:nth-child(5),
-          a[style*="grid-template-columns: 52px 110px 170px"] > div:nth-child(6) {
-            display: none !important;
-          }
-
-          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] {
-            grid-template-columns: 52px 110px minmax(0, 1fr) !important;
-          }
-
-          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] > div:nth-child(3),
-          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] > div:nth-child(5),
-          section > div[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"] > div:nth-child(6) {
-            display: none !important;
+          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
+            grid-template-columns: 42px 110px 170px minmax(220px, 1fr) minmax(180px, 220px) minmax(200px, 240px) !important;
           }
         }
 
-        @media (max-width: 640px) {
+        @media (max-width: 900px) {
           main section div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
             grid-template-columns: 1fr !important;
           }
+
+          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
+            grid-template-columns: 42px 110px minmax(220px, 1fr) !important;
+          }
+
+          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(3),
+          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(5),
+          section > div[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(6) {
+            display: none !important;
+          }
+
+          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] {
+            grid-template-columns: 42px 110px minmax(220px, 1fr) !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+          }
+
+          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(3),
+          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(5),
+          a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"] > div:nth-child(6) {
+            display: none !important;
+          }
         }
 
-        a[style*="grid-template-columns: 52px 110px 170px minmax(220px, 1fr) minmax(160px, 220px) 150px"]:hover {
+        a[style*="grid-template-columns: 42px 110px 170px minmax(260px, 1fr) minmax(170px, 240px) minmax(240px, 300px)"]:hover {
           background: #f8fbff !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
         }
       `}</style>
     </main>
