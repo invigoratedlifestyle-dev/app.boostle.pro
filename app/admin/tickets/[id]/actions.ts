@@ -16,7 +16,6 @@ type SupportTicketRecord = {
 
 type TicketMessageRecord = {
   sender_email: string | null;
-  sender_type?: string | null;
   direction?: string | null;
 };
 
@@ -182,22 +181,22 @@ async function resolveReplyRecipient(input: {
     } as const;
   }
 
-  const { data: latestInboundCustomerMessage, error: latestInboundCustomerMessageError } =
+  const { data: latestInboundMessages, error: latestInboundMessagesError } =
     await supabase
       .from("ticket_messages")
-      .select("sender_email, sender_type, direction")
+      .select("sender_email, direction")
       .eq("ticket_id", ticketId)
       .eq("direction", "inbound")
       .order("created_at", { ascending: false })
       .limit(10);
 
-  if (latestInboundCustomerMessageError) {
+  if (latestInboundMessagesError) {
     throw new Error(
-      `Failed to resolve reply recipient from ticket history: ${latestInboundCustomerMessageError.message}`,
+      `Failed to resolve reply recipient from ticket history: ${latestInboundMessagesError.message}`,
     );
   }
 
-  const messageRows = (latestInboundCustomerMessage ?? []) as TicketMessageRecord[];
+  const messageRows = (latestInboundMessages ?? []) as TicketMessageRecord[];
 
   for (const row of messageRows) {
     const candidate = normalizeEmail(row.sender_email);
