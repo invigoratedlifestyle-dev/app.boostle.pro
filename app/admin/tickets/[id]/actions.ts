@@ -14,6 +14,12 @@ type SupportTicketRecord = {
   public_thread_id: string | null;
 };
 
+type TicketMessageRecord = {
+  sender_email: string | null;
+  sender_type?: string | null;
+  direction?: string | null;
+};
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -74,6 +80,14 @@ function extractEmailAddress(input: string) {
   return trimmed;
 }
 
+function normalizeEmail(value: string | null | undefined) {
+  return (value || "").trim().toLowerCase();
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function buildFromHeader(input: string) {
   const trimmed = input.trim();
 
@@ -82,6 +96,22 @@ function buildFromHeader(input: string) {
   }
 
   return `Boostle Support <${trimmed}>`;
+}
+
+function isInternalSupportAddress(candidate: string, supportFromEmail: string) {
+  const normalizedCandidate = normalizeEmail(candidate);
+  const normalizedSupport = normalizeEmail(supportFromEmail);
+
+  if (!normalizedCandidate) {
+    return false;
+  }
+
+  return (
+    normalizedCandidate === normalizedSupport ||
+    normalizedCandidate === "support@boostle.pro" ||
+    normalizedCandidate.endsWith("@boostle.pro") ||
+    normalizedCandidate.startsWith("reply+")
+  );
 }
 
 async function ensurePublicThreadId(
@@ -130,6 +160,65 @@ async function ensurePublicThreadId(
   }
 
   throw new Error("Failed to generate a unique public_thread_id.");
+}
+
+async function resolveReplyRecipient(input: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  ticketId: string;
+  ticketEmail: string;
+  supportFromEmail: string;
+}) {
+  const { supabase, ticketId, ticketEmail, supportFromEmail } = input;
+
+  const normalizedTicketEmail = normalizeEmail(ticketEmail);
+
+  if (
+    isValidEmail(normalizedTicketEmail) &&
+    !isInternalSupportAddress(normalizedTicketEmail, supportFromEmail)
+  ) {
+    return {
+      email: normalizedTicketEmail,
+      source: "ticket.email",
+    } as const;
+  }
+
+  const { data: latestInboundCustomerMessage, error: latestInboundCustomerMessageError } =
+    await supabase
+      .from("ticket_messages")
+      .select("sender_email, sender_type, direction")
+      .eq("ticket_id", ticketId)
+      .eq("direction", "inbound")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+  if (latestInboundCustomerMessageError) {
+    throw new Error(
+      `Failed to resolve reply recipient from ticket history: ${latestInboundCustomerMessageError.message}`,
+    );
+  }
+
+  const messageRows = (latestInboundCustomerMessage ?? []) as TicketMessageRecord[];
+
+  for (const row of messageRows) {
+    const candidate = normalizeEmail(row.sender_email);
+
+    if (!candidate || !isValidEmail(candidate)) {
+      continue;
+    }
+
+    if (isInternalSupportAddress(candidate, supportFromEmail)) {
+      continue;
+    }
+
+    return {
+      email: candidate,
+      source: "ticket_messages.sender_email",
+    } as const;
+  }
+
+  throw new Error(
+    "Could not determine a valid customer email for this ticket. Reply was blocked to prevent sending to the support inbox.",
+  );
 }
 
 export async function updateTicketStatusAction(formData: FormData) {
@@ -196,21 +285,34 @@ export async function sendTicketReplyAction(formData: FormData) {
     throw new Error("Ticket not found.");
   }
 
-  if (!ticket.email) {
-    throw new Error("Ticket is missing customer email.");
-  }
-
   const publicThreadId = await ensurePublicThreadId(
     supabase,
     ticketId,
     ticket.public_thread_id,
   );
 
-  const supportFromEmail = extractEmailAddress(supportFromValue);
+  const supportFromEmail = normalizeEmail(extractEmailAddress(supportFromValue));
   const fromHeader = buildFromHeader(supportFromValue);
   const replyToEmail = `reply+${publicThreadId}@boostle.pro`;
   const outboundSubject = buildReplySubject(ticket.subject || "(No subject)");
   const replyHtml = buildReplyHtml(replyBody);
+
+  const recipient = await resolveReplyRecipient({
+    supabase,
+    ticketId,
+    ticketEmail: ticket.email,
+    supportFromEmail,
+  });
+
+  console.log("Sending admin ticket reply", {
+    ticketId,
+    replyRecipient: recipient.email,
+    recipientSource: recipient.source,
+    ticketEmail: normalizeEmail(ticket.email),
+    supportFromEmail,
+    replyToEmail,
+    subject: outboundSubject,
+  });
 
   const emailResponse = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -220,7 +322,7 @@ export async function sendTicketReplyAction(formData: FormData) {
     },
     body: JSON.stringify({
       from: fromHeader,
-      to: [ticket.email],
+      to: [recipient.email],
       subject: outboundSubject,
       text: replyBody,
       html: replyHtml,
