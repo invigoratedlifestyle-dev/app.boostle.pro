@@ -1,545 +1,683 @@
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
-import TicketsTable from "./tickets-table";
+import { redirect } from "next/navigation";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isAdminAuthenticated } from "@/lib/admin-auth";
+import type { SupportTicket } from "@/types/support";
 
-type TicketStatus = "open" | "in_progress" | "closed";
-type TicketStatusFilter = TicketStatus | "all";
-type SortOrder = "newest" | "oldest";
-type TicketPriority = "low" | "normal" | "high" | "urgent" | string;
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-AU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
 
-type Ticket = {
-  id: string;
-  ticket_number?: number | null;
-  public_thread_id?: string | null;
-  name: string;
-  email: string;
-  subject: string;
-  message: string;
-  status: TicketStatus;
-  priority?: TicketPriority | null;
-  created_at: string;
-  needs_attention: boolean;
-};
+function getStatusStyle(status: SupportTicket["status"]) {
+  switch (status) {
+    case "open":
+      return {
+        background: "#dcfce7",
+        color: "#15803d",
+        border: "1px solid #86efac",
+        label: "Open",
+      };
+    case "in_progress":
+      return {
+        background: "#fef3c7",
+        color: "#b45309",
+        border: "1px solid #fde68a",
+        label: "In progress",
+      };
+    case "waiting_on_customer":
+      return {
+        background: "#fef3c7",
+        color: "#b45309",
+        border: "1px solid #fde68a",
+        label: "Waiting on customer",
+      };
+    case "resolved":
+      return {
+        background: "#ede9fe",
+        color: "#6d28d9",
+        border: "1px solid #c4b5fd",
+        label: "Resolved",
+      };
+    case "closed":
+      return {
+        background: "#e2e8f0",
+        color: "#475569",
+        border: "1px solid #cbd5e1",
+        label: "Closed",
+      };
+    default:
+      return {
+        background: "#e2e8f0",
+        color: "#475569",
+        border: "1px solid #cbd5e1",
+        label: "Unknown",
+      };
+  }
+}
 
-type SearchParams = {
-  q?: string;
-  status?: string;
-  sort?: string;
-};
+function getPriorityStyle(priority: SupportTicket["priority"]) {
+  switch (priority) {
+    case "low":
+      return {
+        background: "#f8fafc",
+        color: "#475569",
+        border: "1px solid #cbd5e1",
+        label: "Low",
+      };
+    case "normal":
+      return {
+        background: "#eff6ff",
+        color: "#1d4ed8",
+        border: "1px solid #bfdbfe",
+        label: "Normal",
+      };
+    case "high":
+      return {
+        background: "#fff7ed",
+        color: "#c2410c",
+        border: "1px solid #fdba74",
+        label: "High",
+      };
+    case "urgent":
+      return {
+        background: "#fef2f2",
+        color: "#dc2626",
+        border: "1px solid #fca5a5",
+        label: "Urgent",
+      };
+    default:
+      return {
+        background: "#f8fafc",
+        color: "#475569",
+        border: "1px solid #cbd5e1",
+        label: "Normal",
+      };
+  }
+}
 
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function getInitials(name: string, email: string) {
+  const safeName = (name ?? "").trim();
 
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing Supabase environment variables.");
+  if (safeName) {
+    const parts = safeName.split(/\s+/).filter(Boolean);
+    return parts
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("");
   }
 
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  return email.slice(0, 2).toUpperCase();
 }
 
-function normaliseStatus(value?: string): TicketStatusFilter {
-  if (value === "open" || value === "in_progress" || value === "closed") {
-    return value;
+function getMessagePreview(ticket: SupportTicket) {
+  const source =
+    typeof ticket.message === "string" && ticket.message.trim()
+      ? ticket.message
+      : typeof ticket.subject === "string"
+        ? ticket.subject
+        : "";
+
+  const normalized = source.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "No message preview available.";
   }
 
-  return "all";
-}
-
-function normaliseSort(value?: string): SortOrder {
-  return value === "oldest" ? "oldest" : "newest";
-}
-
-function buildAdminUrl({
-  q,
-  status,
-  sort,
-}: {
-  q?: string;
-  status?: string;
-  sort?: string;
-}) {
-  const params = new URLSearchParams();
-
-  if (q) {
-    params.set("q", q);
+  if (normalized.length <= 140) {
+    return normalized;
   }
 
-  if (status && status !== "all") {
-    params.set("status", status);
-  }
-
-  if (sort && sort !== "newest") {
-    params.set("sort", sort);
-  }
-
-  const queryString = params.toString();
-  return queryString ? `/admin?${queryString}` : "/admin";
+  return `${normalized.slice(0, 137)}...`;
 }
 
-function getTabLabel(status: TicketStatusFilter) {
-  if (status === "all") return "All";
-  if (status === "in_progress") return "In progress";
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function getCountForStatus(
-  status: TicketStatusFilter,
-  counts: Record<TicketStatus, number>,
-) {
-  if (status === "all") {
-    return counts.open + counts.in_progress + counts.closed;
-  }
-
-  return counts[status];
-}
-
-function getTabHref({
-  activeStatus,
-  q,
-  sort,
-}: {
-  activeStatus: TicketStatusFilter;
-  q: string;
-  sort: SortOrder;
-}) {
-  return buildAdminUrl({
-    q: q || undefined,
-    status: activeStatus === "all" ? undefined : activeStatus,
-    sort: sort === "newest" ? undefined : sort,
-  });
-}
-
-const styles = {
-  pageShell: {
-    minHeight: "100vh",
-    background:
-      "radial-gradient(circle at top, rgba(37, 99, 235, 0.08), transparent 26%), linear-gradient(180deg, #f8fbff 0%, #eef4ff 40%, #f8fafc 100%)",
-    color: "#0f172a",
-  } as const,
-  container: {
-    maxWidth: "1200px",
-    margin: "0 auto",
-    padding: "32px 20px 56px",
-  } as const,
-  topRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "16px",
-    flexWrap: "wrap",
-  } as const,
-  eyebrow: {
-    margin: "0 0 6px",
-    fontSize: "13px",
-    fontWeight: 800,
-    letterSpacing: "0.15em",
-    textTransform: "uppercase",
-    color: "#2563eb",
-  } as const,
-  pageTitle: {
-    margin: 0,
-    fontSize: "34px",
-    lineHeight: 1.02,
-    letterSpacing: "-0.03em",
-  } as const,
-  pageCopy: {
-    margin: "10px 0 0",
-    fontSize: "16px",
-    lineHeight: 1.65,
-    color: "#475569",
-  } as const,
-  topActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  } as const,
-  secondaryLink: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "44px",
-    padding: "0 16px",
-    borderRadius: "14px",
-    background: "#ffffff",
-    border: "1px solid #dbe7f5",
-    color: "#0f172a",
-    textDecoration: "none",
-    fontWeight: 700,
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-  } as const,
-  statsGrid: {
-    marginTop: "22px",
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: "14px",
-  } as const,
-  statCard: {
-    background: "rgba(255, 255, 255, 0.92)",
-    border: "1px solid rgba(148, 163, 184, 0.2)",
-    borderRadius: "20px",
-    padding: "18px",
-    boxShadow: "0 14px 40px rgba(15, 23, 42, 0.06)",
-  } as const,
-  statLabel: {
-    display: "block",
-    fontSize: "13px",
-    fontWeight: 700,
-    color: "#64748b",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-  } as const,
-  statValue: {
-    display: "block",
-    marginTop: "10px",
-    fontSize: "28px",
-    lineHeight: 1,
-    letterSpacing: "-0.03em",
-    color: "#0f172a",
-  } as const,
-  toolbar: {
-    marginTop: "20px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "14px",
-    flexWrap: "wrap",
-  } as const,
-  searchForm: {
-    display: "flex",
-    gap: "10px",
-    flex: "1 1 460px",
-    flexWrap: "wrap",
-  } as const,
-  searchInput: {
-    flex: "1 1 280px",
-    minHeight: "48px",
-    borderRadius: "14px",
-    border: "1px solid #cbd5e1",
-    padding: "0 14px",
-    font: "inherit",
-    color: "#0f172a",
-    background: "#ffffff",
-    outline: "none",
-  } as const,
-  searchButton: {
-    minHeight: "48px",
-    border: 0,
-    borderRadius: "14px",
-    padding: "0 16px",
-    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
-    color: "#ffffff",
-    font: "inherit",
-    fontWeight: 800,
-    cursor: "pointer",
-    boxShadow: "0 14px 30px rgba(37, 99, 235, 0.2)",
-  } as const,
-  sortActions: {
-    display: "flex",
-    gap: "8px",
-  } as const,
-  sortLink: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "44px",
-    padding: "0 14px",
-    borderRadius: "999px",
-    textDecoration: "none",
-    fontSize: "14px",
-    fontWeight: 700,
-    background: "#e2e8f0",
-    color: "#334155",
-  } as const,
-  sortLinkActive: {
-    background: "#0f172a",
-    color: "#ffffff",
-  } as const,
-  tabs: {
-    marginTop: "18px",
-    marginBottom: "18px",
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-  } as const,
-  tab: {
-    padding: "8px 14px",
-    borderRadius: "999px",
-    fontSize: "14px",
-    fontWeight: 600,
-    background: "#f1f5f9",
-    color: "#334155",
-    textDecoration: "none",
-  } as const,
-  tabActive: {
-    background: "#0f172a",
-    color: "#ffffff",
-  } as const,
-  tableWrap: {
-    marginTop: "8px",
-  } as const,
-};
-
-export default async function AdminDashboardPage({
-  searchParams,
-}: {
-  searchParams?: Promise<SearchParams>;
-}) {
-  const params = searchParams ? await searchParams : {};
-
-  const q = params.q?.trim() ?? "";
-  const status = normaliseStatus(params.status);
-  const sort = normaliseSort(params.sort);
-
-  const supabase = getSupabaseAdmin();
-
-  let ticketsQuery = supabase
+async function getTickets(): Promise<SupportTicket[]> {
+  const { data, error } = await supabaseAdmin
     .from("support_tickets")
-    .select(
-      "id, ticket_number, public_thread_id, name, email, subject, message, status, priority, created_at, needs_attention",
-    );
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  if (status !== "all") {
-    ticketsQuery = ticketsQuery.eq("status", status);
+  if (error) {
+    throw new Error(error.message);
   }
 
-  if (q) {
-    const escapedQ = q.replace(/,/g, "\\,");
-    ticketsQuery = ticketsQuery.or(
-      `name.ilike.%${escapedQ}%,email.ilike.%${escapedQ}%,subject.ilike.%${escapedQ}%`,
-    );
+  return data as SupportTicket[];
+}
+
+export default async function AdminDashboardPage() {
+  const authed = await isAdminAuthenticated();
+
+  if (!authed) {
+    redirect("/admin/login");
   }
 
-  ticketsQuery = ticketsQuery.order("created_at", {
-    ascending: sort === "oldest",
-  });
+  const tickets = await getTickets();
 
-  const [ticketsResult, openCountResult, inProgressCountResult, closedCountResult] =
-    await Promise.all([
-      ticketsQuery,
-      supabase
-        .from("support_tickets")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "open"),
-      supabase
-        .from("support_tickets")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "in_progress"),
-      supabase
-        .from("support_tickets")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "closed"),
-    ]);
-
-  if (ticketsResult.error) {
-    throw new Error(ticketsResult.error.message);
-  }
-
-  if (openCountResult.error) {
-    throw new Error(openCountResult.error.message);
-  }
-
-  if (inProgressCountResult.error) {
-    throw new Error(inProgressCountResult.error.message);
-  }
-
-  if (closedCountResult.error) {
-    throw new Error(closedCountResult.error.message);
-  }
-
-  const tickets = (ticketsResult.data ?? []) as Ticket[];
-
-  const counts: Record<TicketStatus, number> = {
-    open: openCountResult.count ?? 0,
-    in_progress: inProgressCountResult.count ?? 0,
-    closed: closedCountResult.count ?? 0,
-  };
-
-  const needsAttentionCount = tickets.filter(
-    (ticket) => ticket.needs_attention,
+  const openCount = tickets.filter((ticket) => ticket.status === "open").length;
+  const inProgressCount = tickets.filter(
+    (ticket) => ticket.status === "in_progress",
+  ).length;
+  const urgentCount = tickets.filter(
+    (ticket) => ticket.priority === "urgent",
+  ).length;
+  const waitingCount = tickets.filter(
+    (ticket) => ticket.status === "waiting_on_customer",
   ).length;
 
-  const returnTo = buildAdminUrl({
-    q: q || undefined,
-    status: status === "all" ? undefined : status,
-    sort: sort === "newest" ? undefined : sort,
-  });
-
-  const tabs: TicketStatusFilter[] = ["all", "open", "in_progress", "closed"];
-
-  const responsiveCss = `
-    @media (max-width: 1024px) {
-      .admin-stats-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-      }
-    }
-
-    @media (max-width: 720px) {
-      .admin-container {
-        padding: 20px 14px 40px !important;
-      }
-
-      .admin-stats-grid {
-        grid-template-columns: 1fr !important;
-      }
-
-      .admin-page-title {
-        font-size: 28px !important;
-      }
-
-      .admin-toolbar {
-        align-items: stretch !important;
-      }
-
-      .admin-search-form {
-        flex-direction: column !important;
-      }
-
-      .admin-search-button {
-        width: 100% !important;
-      }
-
-      .admin-sort-actions {
-        width: 100% !important;
-      }
-
-      .admin-sort-link {
-        flex: 1 1 0 !important;
-      }
-    }
-  `;
-
   return (
-    <main style={styles.pageShell}>
-      <div className="admin-container" style={styles.container}>
-        <div style={styles.topRow}>
-          <div>
-            <p style={styles.eyebrow}>Boostle Support</p>
-            <h1 className="admin-page-title" style={styles.pageTitle}>
-              Ticket Dashboard
-            </h1>
-            <p style={styles.pageCopy}>
-              View, filter, and open support tickets submitted from
-              app.boostle.pro.
-            </p>
-          </div>
+    <main
+      className="min-h-screen"
+      style={{
+        background: "#f6f8fb",
+        color: "#0f172a",
+      }}
+    >
+      <div
+        className="mx-auto w-full max-w-7xl px-6 py-10"
+        style={{
+          display: "grid",
+          gap: 24,
+        }}
+      >
+        <section
+          style={{
+            borderRadius: 24,
+            padding: 28,
+            background:
+              "linear-gradient(135deg, rgba(37,99,235,0.08), rgba(255,255,255,0.96))",
+            border: "1px solid rgba(148,163,184,0.18)",
+            boxShadow: "0 20px 50px rgba(15, 23, 42, 0.06)",
+          }}
+        >
+          <div
+            className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"
+            style={{ gap: 20 }}
+          >
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                className="flex flex-wrap items-center gap-2"
+                style={{ marginBottom: 12 }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    fontWeight: 800,
+                    color: "#2563eb",
+                  }}
+                >
+                  Boostle Support
+                </p>
 
-          <div style={styles.topActions}>
-            <Link href="/" style={styles.secondaryLink}>
-              Open support form
-            </Link>
-          </div>
-        </div>
+                <span
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: "#ffffff",
+                    color: "#475569",
+                    border: "1px solid #dbe4f0",
+                  }}
+                >
+                  Inbox
+                </span>
+              </div>
 
-        <div className="admin-stats-grid" style={styles.statsGrid}>
-          <div style={styles.statCard}>
-            <span style={styles.statLabel}>Total tickets</span>
-            <strong style={styles.statValue}>
-              {counts.open + counts.in_progress + counts.closed}
-            </strong>
-          </div>
-
-          <div style={styles.statCard}>
-            <span style={styles.statLabel}>Open</span>
-            <strong style={styles.statValue}>{counts.open}</strong>
-          </div>
-
-          <div style={styles.statCard}>
-            <span style={styles.statLabel}>In progress</span>
-            <strong style={styles.statValue}>{counts.in_progress}</strong>
-          </div>
-
-          <div style={styles.statCard}>
-            <span style={styles.statLabel}>Needs attention</span>
-            <strong style={styles.statValue}>{needsAttentionCount}</strong>
-          </div>
-        </div>
-
-        <div className="admin-toolbar" style={styles.toolbar}>
-          <form method="get" className="admin-search-form" style={styles.searchForm}>
-            <input
-              type="text"
-              name="q"
-              defaultValue={q}
-              placeholder="Search name, email, or subject"
-              style={styles.searchInput}
-            />
-            <input type="hidden" name="sort" value={sort} />
-            {status !== "all" ? (
-              <input type="hidden" name="status" value={status} />
-            ) : null}
-            <button
-              type="submit"
-              className="admin-search-button"
-              style={styles.searchButton}
-            >
-              Search
-            </button>
-          </form>
-
-          <div className="admin-sort-actions" style={styles.sortActions}>
-            <Link
-              href={buildAdminUrl({
-                q: q || undefined,
-                status: status === "all" ? undefined : status,
-                sort: "newest",
-              })}
-              className="admin-sort-link"
-              style={{
-                ...styles.sortLink,
-                ...(sort === "newest" ? styles.sortLinkActive : {}),
-              }}
-            >
-              Newest
-            </Link>
-
-            <Link
-              href={buildAdminUrl({
-                q: q || undefined,
-                status: status === "all" ? undefined : status,
-                sort: "oldest",
-              })}
-              className="admin-sort-link"
-              style={{
-                ...styles.sortLink,
-                ...(sort === "oldest" ? styles.sortLinkActive : {}),
-              }}
-            >
-              Oldest
-            </Link>
-          </div>
-        </div>
-
-        <div style={styles.tabs}>
-          {tabs.map((tab) => {
-            const active = tab === status;
-
-            return (
-              <Link
-                key={tab}
-                href={getTabHref({ activeStatus: tab, q, sort })}
+              <h1
                 style={{
-                  ...styles.tab,
-                  ...(active ? styles.tabActive : {}),
+                  margin: 0,
+                  fontSize: 36,
+                  lineHeight: 1.08,
+                  letterSpacing: "-0.04em",
+                  color: "#0f172a",
                 }}
               >
-                {getTabLabel(tab)} ({getCountForStatus(tab, counts)})
-              </Link>
-            );
-          })}
-        </div>
+                Admin Dashboard
+              </h1>
 
-        <div style={styles.tableWrap}>
-          <TicketsTable tickets={tickets} returnTo={returnTo} />
-        </div>
+              <p
+                style={{
+                  margin: "12px 0 0",
+                  color: "#475569",
+                  fontSize: 15,
+                  maxWidth: 720,
+                }}
+              >
+                View, scan, and manage support tickets in a cleaner inbox-style
+                workflow.
+              </p>
+            </div>
+
+            <form action="/api/admin/logout" method="post">
+              <button
+                type="submit"
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 14,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 700,
+                  border: "1px solid #dbe4f0",
+                  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)",
+                }}
+              >
+                Log out
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <section
+          className="grid gap-4 md:grid-cols-4"
+          style={{ alignItems: "stretch" }}
+        >
+          {[
+            {
+              label: "Total tickets",
+              value: tickets.length,
+              tone: {
+                background: "#ffffff",
+                accent: "#2563eb",
+              },
+            },
+            {
+              label: "Open",
+              value: openCount,
+              tone: {
+                background: "#ecfdf5",
+                accent: "#15803d",
+              },
+            },
+            {
+              label: "In progress",
+              value: inProgressCount,
+              tone: {
+                background: "#fffbeb",
+                accent: "#b45309",
+              },
+            },
+            {
+              label: "Urgent / waiting",
+              value: urgentCount + waitingCount,
+              tone: {
+                background: "#fff7ed",
+                accent: "#c2410c",
+              },
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                borderRadius: 22,
+                padding: 20,
+                background: item.tone.background,
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 12px 30px rgba(15, 23, 42, 0.04)",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 14,
+                  color: "#64748b",
+                  fontWeight: 600,
+                }}
+              >
+                {item.label}
+              </p>
+
+              <p
+                style={{
+                  margin: "10px 0 0",
+                  fontSize: 34,
+                  lineHeight: 1,
+                  fontWeight: 800,
+                  color: item.tone.accent,
+                  letterSpacing: "-0.03em",
+                }}
+              >
+                {item.value}
+              </p>
+            </div>
+          ))}
+        </section>
+
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
+            borderRadius: 24,
+            overflow: "hidden",
+            boxShadow: "0 12px 30px rgba(15, 23, 42, 0.04)",
+          }}
+        >
+          <div
+            style={{
+              padding: "20px 24px",
+              borderBottom: "1px solid #eef2f7",
+              display: "grid",
+              gap: 16,
+              background:
+                "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+            }}
+          >
+            <div
+              className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+              style={{ gap: 16 }}
+            >
+              <div>
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 24,
+                    letterSpacing: "-0.02em",
+                    color: "#0f172a",
+                  }}
+                >
+                  Ticket inbox
+                </h2>
+
+                <p
+                  style={{
+                    margin: "6px 0 0",
+                    color: "#64748b",
+                    fontSize: 14,
+                  }}
+                >
+                  A cleaner, more scannable list styled to match the ticket
+                  view.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 14,
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  color: "#475569",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                {tickets.length} ticket{tickets.length === 1 ? "" : "s"}
+              </div>
+            </div>
+
+            <div
+              className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
+              style={{ gap: 12 }}
+            >
+              <div
+                className="flex flex-wrap items-center gap-2"
+                style={{ gap: 8 }}
+              >
+                {[
+                  { label: "All", count: tickets.length, active: true },
+                  { label: "Open", count: openCount, active: false },
+                  {
+                    label: "In progress",
+                    count: inProgressCount,
+                    active: false,
+                  },
+                  { label: "Urgent", count: urgentCount, active: false },
+                ].map((filter) => (
+                  <span
+                    key={filter.label}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      fontSize: 13,
+                      fontWeight: 700,
+                      border: filter.active
+                        ? "1px solid #bfdbfe"
+                        : "1px solid #e2e8f0",
+                      background: filter.active ? "#eff6ff" : "#ffffff",
+                      color: filter.active ? "#1d4ed8" : "#475569",
+                    }}
+                  >
+                    {filter.label}
+                    <span
+                      style={{
+                        display: "inline-grid",
+                        placeItems: "center",
+                        minWidth: 20,
+                        height: 20,
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        background: filter.active ? "#dbeafe" : "#f1f5f9",
+                        color: filter.active ? "#1d4ed8" : "#475569",
+                        padding: "0 6px",
+                      }}
+                    >
+                      {filter.count}
+                    </span>
+                  </span>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  minWidth: 0,
+                  width: "100%",
+                  maxWidth: 320,
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: 14,
+                    border: "1px solid #dbe4f0",
+                    background: "#ffffff",
+                    padding: "12px 14px",
+                    color: "#94a3b8",
+                    fontSize: 14,
+                    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.03)",
+                  }}
+                >
+                  Search by email, subject, or ticket ID
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gap: 0,
+              background:
+                "linear-gradient(180deg, #fcfdff 0%, #f8fafc 100%)",
+            }}
+          >
+            {tickets.length === 0 ? (
+              <div
+                style={{
+                  padding: 40,
+                  textAlign: "center",
+                  color: "#64748b",
+                }}
+              >
+                No tickets yet.
+              </div>
+            ) : (
+              tickets.map((ticket) => {
+                const statusStyle = getStatusStyle(ticket.status);
+                const priorityStyle = getPriorityStyle(ticket.priority);
+                const preview = getMessagePreview(ticket);
+
+                return (
+                  <Link
+                    key={ticket.id}
+                    href={`/admin/tickets/${ticket.id}`}
+                    style={{
+                      display: "block",
+                      textDecoration: "none",
+                      color: "inherit",
+                      borderTop: "1px solid #eef2f7",
+                    }}
+                  >
+                    <article
+                      className="transition"
+                      style={{
+                        padding: 20,
+                        background: "#ffffff",
+                      }}
+                    >
+                      <div
+                        className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
+                        style={{ gap: 16 }}
+                      >
+                        <div
+                          className="flex min-w-0 items-start gap-4"
+                          style={{ gap: 16, minWidth: 0, flex: 1 }}
+                        >
+                          <div
+                            style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: 16,
+                              background: "#dbeafe",
+                              color: "#1d4ed8",
+                              display: "grid",
+                              placeItems: "center",
+                              fontWeight: 800,
+                              fontSize: 14,
+                              border: "1px solid #bfdbfe",
+                              boxShadow:
+                                "0 8px 16px rgba(37, 99, 235, 0.08)",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {getInitials(ticket.name, ticket.email)}
+                          </div>
+
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div
+                              className="mb-2 flex flex-wrap items-center gap-2"
+                              style={{ gap: 8, marginBottom: 8 }}
+                            >
+                              <span
+                                style={{
+                                  padding: "5px 9px",
+                                  borderRadius: 999,
+                                  fontSize: 12,
+                                  fontWeight: 800,
+                                  background: "#f8fafc",
+                                  color: "#475569",
+                                  border: "1px solid #e2e8f0",
+                                }}
+                              >
+                                #{ticket.ticket_number}
+                              </span>
+
+                              <span
+                                style={{
+                                  ...statusStyle,
+                                  padding: "5px 9px",
+                                  borderRadius: 999,
+                                  fontSize: 12,
+                                  fontWeight: 800,
+                                }}
+                              >
+                                {statusStyle.label}
+                              </span>
+
+                              <span
+                                style={{
+                                  ...priorityStyle,
+                                  padding: "5px 9px",
+                                  borderRadius: 999,
+                                  fontSize: 12,
+                                  fontWeight: 800,
+                                }}
+                              >
+                                {priorityStyle.label}
+                              </span>
+                            </div>
+
+                            <h3
+                              style={{
+                                margin: 0,
+                                fontSize: 20,
+                                lineHeight: 1.2,
+                                letterSpacing: "-0.02em",
+                                color: "#0f172a",
+                              }}
+                            >
+                              {ticket.subject}
+                            </h3>
+
+                            <p
+                              style={{
+                                margin: "8px 0 0",
+                                color: "#475569",
+                                fontSize: 14,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {ticket.name} · {ticket.email}
+                            </p>
+
+                            <p
+                              style={{
+                                margin: "10px 0 0",
+                                color: "#64748b",
+                                fontSize: 14,
+                                lineHeight: 1.6,
+                                maxWidth: 780,
+                              }}
+                            >
+                              {preview}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          className="flex flex-row items-center gap-3 lg:flex-col lg:items-end"
+                          style={{
+                            gap: 8,
+                            color: "#64748b",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <p
+                            style={{
+                              margin: 0,
+                              fontSize: 13,
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {formatDate(ticket.created_at)}
+                          </p>
+
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: "#2563eb",
+                            }}
+                          >
+                            Open ticket →
+                          </span>
+                        </div>
+                      </div>
+                    </article>
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        </section>
       </div>
-
-      <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />
     </main>
   );
 }
