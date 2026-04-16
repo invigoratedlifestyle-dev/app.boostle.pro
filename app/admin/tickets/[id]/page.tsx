@@ -763,46 +763,34 @@ export default async function AdminTicketDetailPage({
                 bottom: 16,
                 background: "#ffffff",
                 border: "1px solid #dbe4f0",
-                borderRadius: 24,
-                boxShadow: "0 18px 36px rgba(15, 23, 42, 0.08)",
+                borderRadius: 20,
+                boxShadow: "0 14px 28px rgba(15, 23, 42, 0.07)",
                 overflow: "hidden",
               }}
             >
               <div
                 style={{
-                  padding: "16px 20px",
+                  padding: "12px 16px",
                   borderBottom: "1px solid #eef2f7",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  gap: 16,
+                  gap: 12,
                   flexWrap: "wrap",
                   background:
                     "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
                 }}
               >
-                <div>
-                  <h2
-                    style={{
-                      margin: 0,
-                      fontSize: 22,
-                      letterSpacing: "-0.02em",
-                      color: "#0f172a",
-                    }}
-                  >
-                    Reply to customer
-                  </h2>
-
-                  <p
-                    style={{
-                      margin: "6px 0 0",
-                      color: "#64748b",
-                      fontSize: 14,
-                    }}
-                  >
-                    Send a polished response and keep the workflow moving.
-                  </p>
-                </div>
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 16,
+                    letterSpacing: "-0.02em",
+                    color: "#0f172a",
+                  }}
+                >
+                  Reply to customer
+                </h2>
 
                 <div
                   style={{
@@ -814,7 +802,7 @@ export default async function AdminTicketDetailPage({
                 >
                   <span
                     style={{
-                      padding: "8px 10px",
+                      padding: "6px 9px",
                       borderRadius: 999,
                       background: "#eff6ff",
                       color: "#1d4ed8",
@@ -828,7 +816,7 @@ export default async function AdminTicketDetailPage({
 
                   <span
                     style={{
-                      padding: "8px 10px",
+                      padding: "6px 9px",
                       borderRadius: 999,
                       background: "#f8fafc",
                       color: "#64748b",
@@ -848,13 +836,13 @@ export default async function AdminTicketDetailPage({
               >
                 <input type="hidden" name="ticketId" value={typedTicket.id} />
 
-                <div style={{ padding: 20 }}>
+                <div style={{ padding: 16 }}>
                   <label
                     htmlFor="replyBody"
                     style={{
                       display: "block",
-                      marginBottom: 10,
-                      fontSize: 14,
+                      marginBottom: 8,
+                      fontSize: 13,
                       fontWeight: 700,
                       color: "#122033",
                     }}
@@ -869,18 +857,18 @@ export default async function AdminTicketDetailPage({
                     required
                     style={{
                       width: "100%",
-                      minHeight: 180,
+                      minHeight: 110,
                       resize: "vertical",
                       border: "1px solid #dbe4f0",
                       background: "#ffffff",
                       color: "#122033",
-                      borderRadius: 18,
-                      padding: "16px 18px",
+                      borderRadius: 16,
+                      padding: "12px 14px",
                       outline: "none",
                       boxSizing: "border-box",
                       font: "inherit",
                       fontSize: 15,
-                      lineHeight: 1.7,
+                      lineHeight: 1.65,
                       boxShadow: "inset 0 1px 2px rgba(15, 23, 42, 0.04)",
                     }}
                   />
@@ -888,12 +876,12 @@ export default async function AdminTicketDetailPage({
 
                 <div
                   style={{
-                    padding: "16px 20px 20px",
+                    padding: "12px 16px",
                     borderTop: "1px solid #eef2f7",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    gap: 16,
+                    gap: 12,
                     flexWrap: "wrap",
                     background: "#fcfdff",
                   }}
@@ -902,11 +890,10 @@ export default async function AdminTicketDetailPage({
                     style={{
                       margin: 0,
                       color: "#64748b",
-                      fontSize: 13,
+                      fontSize: 12,
                     }}
                   >
-                    Sending a reply will email the customer and move the ticket
-                    to In progress.
+                    Sends an email reply and moves this ticket to In progress.
                   </p>
 
                   <button
@@ -915,14 +902,14 @@ export default async function AdminTicketDetailPage({
                       appearance: "none",
                       border: 0,
                       cursor: "pointer",
-                      borderRadius: 16,
-                      padding: "14px 20px",
+                      borderRadius: 14,
+                      padding: "10px 14px",
                       fontWeight: 800,
                       background:
                         "linear-gradient(135deg, #2563eb, #1d4ed8 60%, #1e40af)",
                       color: "#ffffff",
                       font: "inherit",
-                      boxShadow: "0 14px 24px rgba(37, 99, 235, 0.25)",
+                      boxShadow: "0 10px 18px rgba(37, 99, 235, 0.22)",
                     }}
                   >
                     Send reply
@@ -1166,7 +1153,7 @@ export default async function AdminTicketDetailPage({
 
           @media (max-width: 720px) {
             textarea {
-              min-height: 160px !important;
+              min-height: 100px !important;
             }
           }
         `}</style>
