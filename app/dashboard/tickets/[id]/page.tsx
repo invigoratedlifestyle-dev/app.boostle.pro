@@ -208,6 +208,17 @@ function parseOriginalRequestDetails(message: string) {
 
   const details: Array<{ label: string; value: string }> = [];
   const messageLines: string[] = [];
+
+  const knownLabels = new Set([
+    "name",
+    "email",
+    "store url",
+    "app",
+    "category",
+    "subject",
+    "ticket",
+  ]);
+
   let reachedMessageBlock = false;
 
   for (const line of lines) {
@@ -227,8 +238,9 @@ function parseOriginalRequestDetails(message: string) {
     if (colonIndex > 0) {
       const label = line.slice(0, colonIndex).trim();
       const value = line.slice(colonIndex + 1).trim();
+      const normalizedLabel = label.toLowerCase();
 
-      if (label && value) {
+      if (label && value && knownLabels.has(normalizedLabel)) {
         details.push({ label, value });
         continue;
       }
@@ -321,7 +333,8 @@ export default async function AdminTicketDetailPage({
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
   const parsedOriginalRequest = parseOriginalRequestDetails(originalMessageBody);
-  const initialConversationBody = parsedOriginalRequest.message;
+  const initialConversationBody =
+    parsedOriginalRequest.message || cleanQuotedReply(typedTicket.message);
   const initialDetails = getVisibleInitialDetails({
     parsed: parsedOriginalRequest,
     ticket: typedTicket,
