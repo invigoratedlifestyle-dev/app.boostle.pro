@@ -223,31 +223,6 @@ async function ensureUniquePublicThreadId(input: {
   return publicThreadId;
 }
 
-function buildInitialTicketMessage(input: {
-  name: string;
-  email: string;
-  storeUrl: string;
-  appName: string;
-  category: string;
-  subject: string;
-  message: string;
-}) {
-  const { name, email, storeUrl, appName, category, subject, message } = input;
-
-  return [
-    "New Boostle support request",
-    "",
-    `Name: ${name}`,
-    `Email: ${email}`,
-    `Store URL: ${storeUrl || "Not provided"}`,
-    `App: ${appName}`,
-    `Category: ${category}`,
-    `Subject: ${subject}`,
-    "",
-    message,
-  ].join("\n");
-}
-
 async function createSupportTicket(input: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
   name: string;
@@ -692,15 +667,6 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
-    const initialTicketMessage = buildInitialTicketMessage({
-      name,
-      email,
-      storeUrl,
-      appName,
-      category,
-      subject,
-      message: customerMessage,
-    });
 
     let createdTicket: CreatedTicketRow | null = null;
     let ticketTableName: "support_tickets" | "tickets" = "support_tickets";
@@ -710,7 +676,7 @@ export async function POST(request: NextRequest) {
       name,
       email,
       subject,
-      message: initialTicketMessage,
+      message: customerMessage,
     });
 
     if (supportTicketResult.data) {
@@ -737,7 +703,7 @@ export async function POST(request: NextRequest) {
         name,
         email,
         subject,
-        message: initialTicketMessage,
+        message: customerMessage,
         storeUrl,
         appName,
         category,
