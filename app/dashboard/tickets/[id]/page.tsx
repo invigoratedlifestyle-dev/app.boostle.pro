@@ -209,52 +209,71 @@ function parseOriginalRequestDetails(message: string) {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  let summary = "";
   const details: Array<{ label: string; value: string }> = [];
-  const extraLines: string[] = [];
+  const messageLines: string[] = [];
+  let summary = "";
+
+  let reachedMessageBlock = false;
 
   for (const line of lines) {
     const colonIndex = line.indexOf(":");
 
-    if (colonIndex > 0) {
+    if (colonIndex > 0 && !reachedMessageBlock) {
       const label = line.slice(0, colonIndex).trim();
       const value = line.slice(colonIndex + 1).trim();
+      const normalizedLabel = label.toLowerCase();
 
       if (label && value) {
         details.push({ label, value });
+
+        if (normalizedLabel === "subject" && !summary) {
+          summary = value;
+        }
+
         continue;
       }
     }
 
-    if (!summary) {
-      summary = line;
-    } else {
-      extraLines.push(line);
+    if (line.toLowerCase() === "new boostle support request") {
+      continue;
     }
+
+    reachedMessageBlock = true;
+    messageLines.push(line);
   }
 
   return {
     summary,
     details,
-    extraText: extraLines.join("\n").trim(),
+    extraText: messageLines.join("\n").trim(),
   };
 }
 
 function getInitialConversationBody(input: {
   originalMessageBody: string;
   originalRequest: ReturnType<typeof parseOriginalRequestDetails>;
+  ticket: Ticket;
 }) {
-  const { originalMessageBody, originalRequest } = input;
+  const { originalMessageBody, originalRequest, ticket } = input;
 
   if (originalRequest.extraText) {
     return originalRequest.extraText;
   }
 
-  if (originalRequest.details.length === 0) {
-    return originalRequest.summary || originalMessageBody;
-  }
+  const subjectLine = `Subject: ${ticket.subject}`.toLowerCase();
+  const cleaned = originalMessageBody
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.toLowerCase() !== "new boostle support request")
+    .filter((line) => !line.toLowerCase().startsWith("name:"))
+    .filter((line) => !line.toLowerCase().startsWith("email:"))
+    .filter((line) => !line.toLowerCase().startsWith("store url:"))
+    .filter((line) => !line.toLowerCase().startsWith("app:"))
+    .filter((line) => !line.toLowerCase().startsWith("category:"))
+    .filter((line) => line.toLowerCase() !== subjectLine);
 
-  return "";
+  return cleaned.join("\n").trim();
 }
 
 function getVisibleInitialDetails(input: {
@@ -334,10 +353,11 @@ export default async function AdminTicketDetailPage({
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
   const originalRequest = parseOriginalRequestDetails(originalMessageBody);
-  const initialConversationBody = getInitialConversationBody({
-    originalMessageBody,
-    originalRequest,
-  });
+const initialConversationBody = getInitialConversationBody({
+  originalMessageBody,
+  originalRequest,
+  ticket: typedTicket,
+});
   const initialDetails = getVisibleInitialDetails({
     originalRequest,
     ticket: typedTicket,
