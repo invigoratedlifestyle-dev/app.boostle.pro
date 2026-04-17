@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import {
   sendTicketReplyAction,
   updateTicketStatusAction,
 } from "../../../admin/tickets/[id]/actions";
-import { revalidatePath } from "next/cache";
 
 type TicketStatus = "open" | "in_progress" | "closed";
 
@@ -30,13 +29,6 @@ type TicketMessage = {
   created_at: string;
 };
 
-type TicketNote = {
-  id: string;
-  ticket_id: string;
-  body: string;
-  created_at: string;
-};
-
 type ConversationItem =
   | {
       id: string;
@@ -45,6 +37,7 @@ type ConversationItem =
       body: string | null;
       sender_email: string;
       sender_name: string | null;
+      isOriginalMessage?: false;
     }
   | {
       id: string;
@@ -53,6 +46,7 @@ type ConversationItem =
       body: string | null;
       sender_name: string | null;
       sender_email: string;
+      isOriginalMessage?: boolean;
     };
 
 function getSupabaseAdmin() {
@@ -209,40 +203,6 @@ function getMessageMeta(item: ConversationItem) {
   };
 }
 
-function getTabHref(
-  ticketId: string,
-  tab: "conversation" | "notes",
-  replySent: boolean,
-) {
-  const searchParams = new URLSearchParams();
-  searchParams.set("tab", tab);
-
-  if (replySent) {
-    searchParams.set("sent", "1");
-  }
-
-  return `/dashboard/tickets/${ticketId}?${searchParams.toString()}`;
-}
-
-function getTabStyle(isActive: boolean) {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    padding: "10px 14px",
-    fontSize: 13,
-    fontWeight: 800,
-    textDecoration: "none",
-    border: isActive ? "1px solid #bfdbfe" : "1px solid #dbe4f0",
-    background: isActive ? "#eff6ff" : "#ffffff",
-    color: isActive ? "#1d4ed8" : "#475569",
-    boxShadow: isActive
-      ? "0 6px 14px rgba(37, 99, 235, 0.08)"
-      : "0 4px 12px rgba(15, 23, 42, 0.04)",
-  } as const;
-}
-
 function parseOriginalRequestDetails(message: string) {
   const lines = message
     .split("\n")
@@ -280,18 +240,53 @@ function parseOriginalRequestDetails(message: string) {
   };
 }
 
+function getInitialConversationBody(input: {
+  originalMessageBody: string;
+  originalRequest: ReturnType<typeof parseOriginalRequestDetails>;
+}) {
+  const { originalMessageBody, originalRequest } = input;
+
+  if (originalRequest.extraText) {
+    return originalRequest.extraText;
+  }
+
+  if (originalRequest.details.length === 0) {
+    return originalRequest.summary || originalMessageBody;
+  }
+
+  return "";
+}
+
+function getVisibleInitialDetails(input: {
+  originalRequest: ReturnType<typeof parseOriginalRequestDetails>;
+  ticket: Ticket;
+}) {
+  const details = input.originalRequest.details.filter((detail) => {
+    const normalized = detail.label.trim().toLowerCase();
+    return !["subject", "message"].includes(normalized);
+  });
+
+  return [
+    {
+      label: "Ticket",
+      value: input.ticket.ticket_number
+        ? `Ticket #${input.ticket.ticket_number}`
+        : `Ticket #${input.ticket.id.slice(0, 8)}`,
+    },
+    ...details,
+  ];
+}
+
 export default async function AdminTicketDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ sent?: string; tab?: string }>;
+  searchParams?: Promise<{ sent?: string }>;
 }) {
   const { id } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const replySent = resolvedSearchParams.sent === "1";
-  const activeTab =
-    resolvedSearchParams.tab === "notes" ? "notes" : "conversation";
 
   const supabase = getSupabaseAdmin();
 
@@ -332,71 +327,58 @@ export default async function AdminTicketDetailPage({
     throw new Error(messagesResult.error.message);
   }
 
-  const notesResult = await supabase
-    .from("support_ticket_notes")
-    .select("id, ticket_id, body, created_at")
-    .eq("ticket_id", id)
-    .order("created_at", { ascending: false });
-
-  if (notesResult.error) {
-    throw new Error(notesResult.error.message);
-  }
-
   const messages = (messagesResult.data ?? []) as TicketMessage[];
-  const notes = (notesResult.data ?? []) as TicketNote[];
-
-  const conversation: ConversationItem[] = messages.map((message) => {
-    if (message.direction === "outbound") {
-      return {
-        id: message.id,
-        type: "admin_reply" as const,
-        created_at: message.created_at,
-        body: message.body_text,
-        sender_email: message.sender_email,
-        sender_name: message.sender_name,
-      };
-    }
-
-    return {
-      id: message.id,
-      type: "customer_reply" as const,
-      created_at: message.created_at,
-      body: cleanQuotedReply(message.body_text),
-      sender_name: message.sender_name,
-      sender_email: message.sender_email,
-    };
-  });
-
-  async function addTicketNoteAction(formData: FormData) {
-    "use server";
-
-    const body = String(formData.get("body") ?? "").trim();
-
-    if (!body) {
-      throw new Error("Note cannot be empty.");
-    }
-
-    const supabase = getSupabaseAdmin();
-
-    const { error } = await supabase.from("support_ticket_notes").insert({
-      ticket_id: id,
-      body,
-    });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    revalidatePath("/dashboard");
-    revalidatePath(`/dashboard/tickets/${id}`);
-    redirect(`/dashboard/tickets/${id}?tab=notes`);
-  }
 
   const typedTicket = ticket as Ticket;
   const returnTo = `/dashboard/tickets/${typedTicket.id}`;
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
   const originalRequest = parseOriginalRequestDetails(originalMessageBody);
+  const initialConversationBody = getInitialConversationBody({
+    originalMessageBody,
+    originalRequest,
+  });
+  const initialDetails = getVisibleInitialDetails({
+    originalRequest,
+    ticket: typedTicket,
+  });
+
+  const conversation: ConversationItem[] = [
+    ...(initialConversationBody
+      ? [
+          {
+            id: "initial-message",
+            type: "customer_reply" as const,
+            created_at: typedTicket.created_at,
+            body: initialConversationBody,
+            sender_name: typedTicket.name,
+            sender_email: typedTicket.email,
+            isOriginalMessage: true,
+          },
+        ]
+      : []),
+    ...messages.map((message) => {
+      if (message.direction === "outbound") {
+        return {
+          id: message.id,
+          type: "admin_reply" as const,
+          created_at: message.created_at,
+          body: message.body_text,
+          sender_email: message.sender_email,
+          sender_name: message.sender_name,
+        };
+      }
+
+      return {
+        id: message.id,
+        type: "customer_reply" as const,
+        created_at: message.created_at,
+        body: cleanQuotedReply(message.body_text),
+        sender_name: message.sender_name,
+        sender_email: message.sender_email,
+      };
+    }),
+  ];
 
   return (
     <main
@@ -555,28 +537,6 @@ export default async function AdminTicketDetailPage({
 
           <div
             style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
-            }}
-          >
-            <Link
-              href={getTabHref(typedTicket.id, "conversation", replySent)}
-              style={getTabStyle(activeTab === "conversation")}
-            >
-              Conversation
-            </Link>
-
-            <Link
-              href={getTabHref(typedTicket.id, "notes", replySent)}
-              style={getTabStyle(activeTab === "notes")}
-            >
-              Notes
-            </Link>
-          </div>
-
-          <div
-            style={{
               display: "grid",
               gridTemplateColumns: "minmax(0, 1.9fr) minmax(320px, 0.9fr)",
               gap: 18,
@@ -584,48 +544,124 @@ export default async function AdminTicketDetailPage({
             }}
           >
             <div style={{ display: "grid", gap: 18 }}>
-              {activeTab === "conversation" ? (
-                <>
-                  <section
+              <section
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #dbe4f0",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 16,
+                    flexWrap: "wrap",
+                    padding: "12px 14px",
+                    background: "#f8fafc",
+                    borderBottom: "1px solid #dbe4f0",
+                  }}
+                >
+                  <div
                     style={{
-                      background:
-                        "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
-                      border: "1px solid #dbe4f0",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: 15,
+                        fontWeight: 800,
+                        color: "#0f172a",
+                      }}
+                    >
+                      Initial ticket details
+                    </h2>
+
+                    <span
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        background: "#eff6ff",
+                        color: "#1d4ed8",
+                        border: "1px solid #bfdbfe",
+                      }}
+                    >
+                      Original submission
+                    </span>
+                  </div>
+
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#64748b",
+                    }}
+                  >
+                    Submitted {formatDateTime(typedTicket.created_at)}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    padding: 14,
+                    display: "grid",
+                    gap: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "52px minmax(0, 1fr)",
+                      gap: 12,
+                      alignItems: "center",
                     }}
                   >
                     <div
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 16,
-                        flexWrap: "wrap",
-                        padding: "12px 14px",
-                        background: "#f8fafc",
-                        borderBottom: "1px solid #dbe4f0",
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        background:
+                          "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)",
+                        color: "#1d4ed8",
+                        display: "grid",
+                        placeItems: "center",
+                        fontWeight: 800,
+                        fontSize: 16,
+                        border: "1px solid #bfdbfe",
                       }}
                     >
+                      {getInitials(typedTicket.name, typedTicket.email)}
+                    </div>
+
+                    <div style={{ minWidth: 0 }}>
                       <div
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 10,
+                          gap: 8,
                           flexWrap: "wrap",
                         }}
                       >
-                        <h2
+                        <h3
                           style={{
                             margin: 0,
-                            fontSize: 15,
+                            fontSize: 16,
                             fontWeight: 800,
                             color: "#0f172a",
                           }}
                         >
-                          Initial ticket details
-                        </h2>
+                          {typedTicket.subject}
+                        </h3>
 
                         <span
                           style={{
@@ -633,817 +669,199 @@ export default async function AdminTicketDetailPage({
                             borderRadius: 999,
                             fontSize: 12,
                             fontWeight: 700,
-                            background: "#eff6ff",
-                            color: "#1d4ed8",
-                            border: "1px solid #bfdbfe",
+                            background: "#ecfeff",
+                            color: "#0f766e",
+                            border: "1px solid #a5f3fc",
                           }}
                         >
-                          Original submission
+                          Customer request
                         </span>
                       </div>
 
-                      <span
+                      <p
                         style={{
-                          fontSize: 12,
-                          fontWeight: 700,
+                          margin: "6px 0 0",
                           color: "#64748b",
+                          fontSize: 13,
                         }}
                       >
-                        Submitted {formatDateTime(typedTicket.created_at)}
-                      </span>
+                        Submitted by {typedTicket.name} · {typedTicket.email}
+                      </p>
                     </div>
+                  </div>
 
-                    <div
-                      style={{
-                        padding: 16,
-                        display: "grid",
-                        gap: 16,
-                      }}
-                    >
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                    }}
+                  >
+                    {initialDetails.map((detail) => (
                       <div
+                        key={`${detail.label}-${detail.value}`}
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "56px minmax(0, 1fr)",
-                          gap: 14,
-                          alignItems: "start",
+                          padding: "12px 14px",
+                          borderRadius: 12,
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
                         }}
                       >
-                        <div
+                        <p
                           style={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 16,
-                            background:
-                              "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)",
-                            color: "#1d4ed8",
-                            display: "grid",
-                            placeItems: "center",
+                            margin: 0,
+                            fontSize: 11,
                             fontWeight: 800,
-                            fontSize: 16,
-                            border: "1px solid #bfdbfe",
-                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.65)",
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#64748b",
                           }}
                         >
-                          {getInitials(typedTicket.name, typedTicket.email)}
-                        </div>
+                          {detail.label}
+                        </p>
 
-                        <div style={{ minWidth: 0 }}>
+                        <p
+                          style={{
+                            margin: "6px 0 0",
+                            fontSize: 14,
+                            lineHeight: 1.6,
+                            fontWeight: 700,
+                            color: "#0f172a",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {detail.value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              <section
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #dbe4f0",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 16,
+                    flexWrap: "wrap",
+                    padding: "12px 14px",
+                    background: "#f8fafc",
+                    borderBottom: "1px solid #dbe4f0",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: 15,
+                        fontWeight: 800,
+                        color: "#0f172a",
+                      }}
+                    >
+                      Conversation
+                    </h2>
+
+                    <span
+                      style={{
+                        display: "inline-grid",
+                        placeItems: "center",
+                        minWidth: 22,
+                        height: 22,
+                        padding: "0 7px",
+                        borderRadius: 999,
+                        background: "#ffffff",
+                        border: "1px solid #dbe4f0",
+                        color: "#64748b",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {conversation.length}
+                    </span>
+                  </div>
+
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#64748b",
+                    }}
+                  >
+                    Ticket timeline
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                    padding: 14,
+                    background: "#ffffff",
+                  }}
+                >
+                  {conversation.length === 0 ? (
+                    <div
+                      style={{
+                        padding: "16px 14px",
+                        borderRadius: 12,
+                        background: "#ffffff",
+                        border: "1px dashed #cbd5e1",
+                        color: "#64748b",
+                        fontSize: 14,
+                      }}
+                    >
+                      No replies yet.
+                    </div>
+                  ) : (
+                    conversation.map((item) => {
+                      const meta = getMessageMeta(item);
+                      const displayName =
+                        item.sender_name?.trim() || item.sender_email;
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "44px minmax(0, 1fr)",
+                            gap: 12,
+                            alignItems: "start",
+                          }}
+                        >
                           <div
                             style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              flexWrap: "wrap",
+                              width: 44,
+                              height: 44,
+                              borderRadius: 12,
+                              display: "grid",
+                              placeItems: "center",
+                              fontWeight: 800,
+                              fontSize: 13,
+                              ...meta.avatarStyle,
                             }}
                           >
-                            <h3
-                              style={{
-                                margin: 0,
-                                fontSize: 18,
-                                fontWeight: 800,
-                                color: "#0f172a",
-                              }}
-                            >
-                              {typedTicket.subject}
-                            </h3>
-
-                            <span
-                              style={{
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                background: "#ecfeff",
-                                color: "#0f766e",
-                                border: "1px solid #a5f3fc",
-                              }}
-                            >
-                              Customer request
-                            </span>
+                            {getInitials(item.sender_name, item.sender_email)}
                           </div>
 
-                          <p
-                            style={{
-                              margin: "8px 0 0",
-                              color: "#64748b",
-                              fontSize: 13,
-                            }}
-                          >
-                            Submitted by {typedTicket.name} · {typedTicket.email}
-                          </p>
-                        </div>
-                      </div>
-
-                      {originalRequest.summary ? (
-                        <div
-                          style={{
-                            padding: "14px 16px",
-                            borderRadius: 12,
-                            background: "#f8fafc",
-                            border: "1px solid #e2e8f0",
-                            color: "#122033",
-                            fontSize: 14,
-                            lineHeight: 1.7,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {originalRequest.summary}
-                        </div>
-                      ) : null}
-
-                      {originalRequest.details.length > 0 ? (
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fit, minmax(220px, 1fr))",
-                            gap: 12,
-                          }}
-                        >
-                          {originalRequest.details.map((detail) => (
-                            <div
-                              key={`${detail.label}-${detail.value}`}
-                              style={{
-                                padding: "12px 14px",
-                                borderRadius: 12,
-                                background: "#ffffff",
-                                border: "1px solid #e2e8f0",
-                                boxShadow:
-                                  "0 4px 10px rgba(15, 23, 42, 0.03)",
-                              }}
-                            >
-                              <p
-                                style={{
-                                  margin: 0,
-                                  fontSize: 11,
-                                  fontWeight: 800,
-                                  letterSpacing: "0.08em",
-                                  textTransform: "uppercase",
-                                  color: "#64748b",
-                                }}
-                              >
-                                {detail.label}
-                              </p>
-
-                              <p
-                                style={{
-                                  margin: "7px 0 0",
-                                  fontSize: 14,
-                                  lineHeight: 1.6,
-                                  fontWeight: 700,
-                                  color: "#0f172a",
-                                  wordBreak: "break-word",
-                                }}
-                              >
-                                {detail.value}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {originalRequest.extraText ? (
-                        <div
-                          style={{
-                            padding: "14px 16px",
-                            borderRadius: 12,
-                            background: "#ffffff",
-                            border: "1px solid #e2e8f0",
-                            whiteSpace: "pre-wrap",
-                            lineHeight: 1.7,
-                            color: "#122033",
-                            fontSize: 14,
-                          }}
-                        >
-                          {originalRequest.extraText}
-                        </div>
-                      ) : null}
-
-                      {!originalRequest.summary &&
-                      originalRequest.details.length === 0 &&
-                      !originalRequest.extraText ? (
-                        <div
-                          style={{
-                            padding: "14px 16px",
-                            borderRadius: 12,
-                            background: "#ffffff",
-                            border: "1px solid #e2e8f0",
-                            whiteSpace: "pre-wrap",
-                            lineHeight: 1.7,
-                            color: "#122033",
-                            fontSize: 14,
-                          }}
-                        >
-                          {originalMessageBody || "(No message body captured)"}
-                        </div>
-                      ) : null}
-                    </div>
-                  </section>
-
-                  <section
-                    style={{
-                      background: "#ffffff",
-                      border: "1px solid #dbe4f0",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 16,
-                        flexWrap: "wrap",
-                        padding: "12px 14px",
-                        background: "#f8fafc",
-                        borderBottom: "1px solid #dbe4f0",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <h2
-                          style={{
-                            margin: 0,
-                            fontSize: 15,
-                            fontWeight: 800,
-                            color: "#0f172a",
-                          }}
-                        >
-                          Conversation
-                        </h2>
-
-                        <span
-                          style={{
-                            display: "inline-grid",
-                            placeItems: "center",
-                            minWidth: 22,
-                            height: 22,
-                            padding: "0 7px",
-                            borderRadius: 999,
-                            background: "#ffffff",
-                            border: "1px solid #dbe4f0",
-                            color: "#64748b",
-                            fontSize: 12,
-                            fontWeight: 700,
-                          }}
-                        >
-                          {conversation.length}
-                        </span>
-                      </div>
-
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "#64748b",
-                        }}
-                      >
-                        Ticket timeline
-                      </span>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gap: 12,
-                        padding: 14,
-                        background: "#ffffff",
-                      }}
-                    >
-                      {conversation.length === 0 ? (
-                        <div
-                          style={{
-                            padding: "16px 14px",
-                            borderRadius: 12,
-                            background: "#ffffff",
-                            border: "1px dashed #cbd5e1",
-                            color: "#64748b",
-                            fontSize: 14,
-                          }}
-                        >
-                          No replies yet.
-                        </div>
-                      ) : (
-                        conversation.map((item) => {
-                          const meta = getMessageMeta(item);
-                          const displayName =
-                            item.sender_name?.trim() || item.sender_email;
-
-                          return (
-                            <div
-                              key={item.id}
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "44px minmax(0, 1fr)",
-                                gap: 12,
-                                alignItems: "start",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: 44,
-                                  height: 44,
-                                  borderRadius: 12,
-                                  display: "grid",
-                                  placeItems: "center",
-                                  fontWeight: 800,
-                                  fontSize: 13,
-                                  ...meta.avatarStyle,
-                                }}
-                              >
-                                {getInitials(item.sender_name, item.sender_email)}
-                              </div>
-
-                              <article
-                                style={{
-                                  ...meta.rowStyle,
-                                  borderRadius: 12,
-                                  padding: 14,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "flex-start",
-                                    gap: 12,
-                                    flexWrap: "wrap",
-                                  }}
-                                >
-                                  <div style={{ minWidth: 0 }}>
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 8,
-                                        flexWrap: "wrap",
-                                      }}
-                                    >
-                                      <p
-                                        style={{
-                                          margin: 0,
-                                          fontSize: 14,
-                                          fontWeight: 800,
-                                          color: "#0f172a",
-                                        }}
-                                      >
-                                        {displayName}
-                                      </p>
-
-                                      <span
-                                        style={{
-                                          ...meta.chipStyle,
-                                          padding: "4px 8px",
-                                          borderRadius: 999,
-                                          fontSize: 12,
-                                          fontWeight: 700,
-                                        }}
-                                      >
-                                        {meta.chipText}
-                                      </span>
-                                    </div>
-
-                                    <p
-                                      style={{
-                                        margin: "5px 0 0",
-                                        fontSize: 12,
-                                        color: "#64748b",
-                                      }}
-                                    >
-                                      {meta.label} · {item.sender_email}
-                                    </p>
-                                  </div>
-
-                                  <p
-                                    style={{
-                                      margin: 0,
-                                      fontSize: 12,
-                                      color: "#64748b",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {formatDateTime(item.created_at)}
-                                  </p>
-                                </div>
-
-                                <div
-                                  style={{
-                                    marginTop: 12,
-                                    whiteSpace: "pre-wrap",
-                                    lineHeight: 1.7,
-                                    color: "#122033",
-                                    fontSize: 14,
-                                  }}
-                                >
-                                  {item.body?.trim()
-                                    ? item.body
-                                    : "(No message body captured)"}
-                                </div>
-                              </article>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </section>
-
-                  <section
-                    style={{
-                      background: "#ffffff",
-                      border: "1px solid #dbe4f0",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 12,
-                        flexWrap: "wrap",
-                        padding: "12px 14px",
-                        background: "#f8fafc",
-                        borderBottom: "1px solid #dbe4f0",
-                      }}
-                    >
-                      <h2
-                        style={{
-                          margin: 0,
-                          fontSize: 15,
-                          fontWeight: 800,
-                          color: "#0f172a",
-                        }}
-                      >
-                        Reply to customer
-                      </h2>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <span
-                          style={{
-                            padding: "5px 8px",
-                            borderRadius: 999,
-                            background: "#eff6ff",
-                            color: "#1d4ed8",
-                            border: "1px solid #bfdbfe",
-                            fontSize: 12,
-                            fontWeight: 700,
-                          }}
-                        >
-                          Public reply
-                        </span>
-
-                        <span
-                          style={{
-                            padding: "5px 8px",
-                            borderRadius: 999,
-                            background: "#ffffff",
-                            color: "#64748b",
-                            border: "1px solid #dbe4f0",
-                            fontSize: 12,
-                            fontWeight: 700,
-                          }}
-                        >
-                          Email channel
-                        </span>
-                      </div>
-                    </div>
-
-                    <form
-                      action={sendTicketReplyAction}
-                      style={{ display: "grid", gap: 0 }}
-                    >
-                      <input
-                        type="hidden"
-                        name="ticketId"
-                        value={typedTicket.id}
-                      />
-
-                      <div style={{ padding: 14 }}>
-                        <label
-                          htmlFor="replyBody"
-                          style={{
-                            display: "block",
-                            marginBottom: 8,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#122033",
-                          }}
-                        >
-                          Message
-                        </label>
-
-                        <textarea
-                          id="replyBody"
-                          name="replyBody"
-                          placeholder="Write your reply to the customer..."
-                          required
-                          style={{
-                            width: "100%",
-                            minHeight: 120,
-                            resize: "vertical",
-                            border: "1px solid #dbe4f0",
-                            background: "#ffffff",
-                            color: "#122033",
-                            borderRadius: 12,
-                            padding: "12px 14px",
-                            outline: "none",
-                            boxSizing: "border-box",
-                            font: "inherit",
-                            fontSize: 14,
-                            lineHeight: 1.65,
-                          }}
-                        />
-                      </div>
-
-                      <div
-                        style={{
-                          padding: "12px 14px",
-                          borderTop: "1px solid #eef2f7",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 12,
-                          flexWrap: "wrap",
-                          background: "#ffffff",
-                        }}
-                      >
-                        <p
-                          style={{
-                            margin: 0,
-                            color: "#64748b",
-                            fontSize: 12,
-                          }}
-                        >
-                          Sends an email reply and moves this ticket to In
-                          progress.
-                        </p>
-
-                        <button
-                          type="submit"
-                          style={{
-                            appearance: "none",
-                            border: 0,
-                            cursor: "pointer",
-                            borderRadius: 10,
-                            padding: "10px 14px",
-                            fontWeight: 800,
-                            background: "#0f172a",
-                            color: "#ffffff",
-                            font: "inherit",
-                            boxShadow: "0 4px 12px rgba(15, 23, 42, 0.12)",
-                          }}
-                        >
-                          Send reply
-                        </button>
-                      </div>
-                    </form>
-                  </section>
-                </>
-              ) : (
-                <>
-                  <section
-                    style={{
-                      background: "#ffffff",
-                      border: "1px solid #dbe4f0",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 16,
-                        flexWrap: "wrap",
-                        padding: "12px 14px",
-                        background: "#f8fafc",
-                        borderBottom: "1px solid #dbe4f0",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <h2
-                          style={{
-                            margin: 0,
-                            fontSize: 15,
-                            fontWeight: 800,
-                            color: "#0f172a",
-                          }}
-                        >
-                          Notes
-                        </h2>
-
-                        <span
-                          style={{
-                            display: "inline-grid",
-                            placeItems: "center",
-                            minWidth: 22,
-                            height: 22,
-                            padding: "0 7px",
-                            borderRadius: 999,
-                            background: "#ffffff",
-                            border: "1px solid #dbe4f0",
-                            color: "#64748b",
-                            fontSize: 12,
-                            fontWeight: 700,
-                          }}
-                        >
-                          {notes.length}
-                        </span>
-                      </div>
-
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "#64748b",
-                        }}
-                      >
-                        Internal only
-                      </span>
-                    </div>
-
-                    <form
-                      action={addTicketNoteAction}
-                      style={{ display: "grid", gap: 0 }}
-                    >
-                      <div style={{ padding: 14 }}>
-                        <label
-                          htmlFor="noteBody"
-                          style={{
-                            display: "block",
-                            marginBottom: 8,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#122033",
-                          }}
-                        >
-                          Add note
-                        </label>
-
-                        <textarea
-                          id="noteBody"
-                          name="body"
-                          placeholder="Write an internal note..."
-                          required
-                          style={{
-                            width: "100%",
-                            minHeight: 120,
-                            resize: "vertical",
-                            border: "1px solid #dbe4f0",
-                            background: "#ffffff",
-                            color: "#122033",
-                            borderRadius: 12,
-                            padding: "12px 14px",
-                            outline: "none",
-                            boxSizing: "border-box",
-                            font: "inherit",
-                            fontSize: 14,
-                            lineHeight: 1.65,
-                          }}
-                        />
-                      </div>
-
-                      <div
-                        style={{
-                          padding: "12px 14px",
-                          borderTop: "1px solid #eef2f7",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 12,
-                          flexWrap: "wrap",
-                          background: "#ffffff",
-                        }}
-                      >
-                        <p
-                          style={{
-                            margin: 0,
-                            color: "#64748b",
-                            fontSize: 12,
-                          }}
-                        >
-                          Notes stay private and are not part of the customer
-                          conversation.
-                        </p>
-
-                        <button
-                          type="submit"
-                          style={{
-                            appearance: "none",
-                            border: 0,
-                            cursor: "pointer",
-                            borderRadius: 10,
-                            padding: "10px 14px",
-                            fontWeight: 800,
-                            background: "#0f172a",
-                            color: "#ffffff",
-                            font: "inherit",
-                            boxShadow: "0 4px 12px rgba(15, 23, 42, 0.12)",
-                          }}
-                        >
-                          Add note
-                        </button>
-                      </div>
-                    </form>
-                  </section>
-
-                  <section
-                    style={{
-                      background: "#ffffff",
-                      border: "1px solid #dbe4f0",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 16,
-                        flexWrap: "wrap",
-                        padding: "12px 14px",
-                        background: "#f8fafc",
-                        borderBottom: "1px solid #dbe4f0",
-                      }}
-                    >
-                      <h2
-                        style={{
-                          margin: 0,
-                          fontSize: 15,
-                          fontWeight: 800,
-                          color: "#0f172a",
-                        }}
-                      >
-                        Note history
-                      </h2>
-
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "#64748b",
-                        }}
-                      >
-                        Newest first
-                      </span>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gap: 12,
-                        padding: 14,
-                        background: "#ffffff",
-                      }}
-                    >
-                      {notes.length === 0 ? (
-                        <div
-                          style={{
-                            padding: "16px 14px",
-                            borderRadius: 12,
-                            background: "#ffffff",
-                            border: "1px dashed #cbd5e1",
-                            color: "#64748b",
-                            fontSize: 14,
-                          }}
-                        >
-                          No internal notes yet.
-                        </div>
-                      ) : (
-                        notes.map((note) => (
                           <article
-                            key={note.id}
                             style={{
-                              background: "#fffdf7",
-                              border: "1px solid #fcd34d",
+                              ...meta.rowStyle,
                               borderRadius: 12,
                               padding: 14,
                             }}
@@ -1457,38 +875,52 @@ export default async function AdminTicketDetailPage({
                                 flexWrap: "wrap",
                               }}
                             >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  flexWrap: "wrap",
-                                }}
-                              >
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <p
+                                    style={{
+                                      margin: 0,
+                                      fontSize: 14,
+                                      fontWeight: 800,
+                                      color: "#0f172a",
+                                    }}
+                                  >
+                                    {displayName}
+                                  </p>
+
+                                  <span
+                                    style={{
+                                      ...meta.chipStyle,
+                                      padding: "4px 8px",
+                                      borderRadius: 999,
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {item.isOriginalMessage
+                                      ? "Original message"
+                                      : meta.chipText}
+                                  </span>
+                                </div>
+
                                 <p
                                   style={{
-                                    margin: 0,
-                                    fontSize: 14,
-                                    fontWeight: 800,
-                                    color: "#0f172a",
-                                  }}
-                                >
-                                  Internal note
-                                </p>
-
-                                <span
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderRadius: 999,
+                                    margin: "5px 0 0",
                                     fontSize: 12,
-                                    fontWeight: 700,
-                                    background: "#fef3c7",
-                                    color: "#92400e",
-                                    border: "1px solid #fcd34d",
+                                    color: "#64748b",
                                   }}
                                 >
-                                  Private
-                                </span>
+                                  {item.isOriginalMessage
+                                    ? `Customer request · ${item.sender_email}`
+                                    : `${meta.label} · ${item.sender_email}`}
+                                </p>
                               </div>
 
                               <p
@@ -1499,7 +931,7 @@ export default async function AdminTicketDetailPage({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                {formatDateTime(note.created_at)}
+                                {formatDateTime(item.created_at)}
                               </p>
                             </div>
 
@@ -1512,17 +944,173 @@ export default async function AdminTicketDetailPage({
                                 fontSize: 14,
                               }}
                             >
-                              {note.body.trim()
-                                ? note.body
-                                : "(No note body captured)"}
+                              {item.body?.trim()
+                                ? item.body
+                                : "(No message body captured)"}
                             </div>
                           </article>
-                        ))
-                      )}
-                    </div>
-                  </section>
-                </>
-              )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
+              <section
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #dbe4f0",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    padding: "12px 14px",
+                    background: "#f8fafc",
+                    borderBottom: "1px solid #dbe4f0",
+                  }}
+                >
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: "#0f172a",
+                    }}
+                  >
+                    Reply to customer
+                  </h2>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span
+                      style={{
+                        padding: "5px 8px",
+                        borderRadius: 999,
+                        background: "#eff6ff",
+                        color: "#1d4ed8",
+                        border: "1px solid #bfdbfe",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Public reply
+                    </span>
+
+                    <span
+                      style={{
+                        padding: "5px 8px",
+                        borderRadius: 999,
+                        background: "#ffffff",
+                        color: "#64748b",
+                        border: "1px solid #dbe4f0",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Email channel
+                    </span>
+                  </div>
+                </div>
+
+                <form
+                  action={sendTicketReplyAction}
+                  style={{ display: "grid", gap: 0 }}
+                >
+                  <input type="hidden" name="ticketId" value={typedTicket.id} />
+
+                  <div style={{ padding: 14 }}>
+                    <label
+                      htmlFor="replyBody"
+                      style={{
+                        display: "block",
+                        marginBottom: 8,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: "#122033",
+                      }}
+                    >
+                      Message
+                    </label>
+
+                    <textarea
+                      id="replyBody"
+                      name="replyBody"
+                      placeholder="Write your reply to the customer..."
+                      required
+                      style={{
+                        width: "100%",
+                        minHeight: 120,
+                        resize: "vertical",
+                        border: "1px solid #dbe4f0",
+                        background: "#ffffff",
+                        color: "#122033",
+                        borderRadius: 12,
+                        padding: "12px 14px",
+                        outline: "none",
+                        boxSizing: "border-box",
+                        font: "inherit",
+                        fontSize: 14,
+                        lineHeight: 1.65,
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderTop: "1px solid #eef2f7",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 12,
+                      flexWrap: "wrap",
+                      background: "#ffffff",
+                    }}
+                  >
+                    <p
+                      style={{
+                        margin: 0,
+                        color: "#64748b",
+                        fontSize: 12,
+                      }}
+                    >
+                      Sends an email reply and moves this ticket to In progress.
+                    </p>
+
+                    <button
+                      type="submit"
+                      style={{
+                        appearance: "none",
+                        border: 0,
+                        cursor: "pointer",
+                        borderRadius: 10,
+                        padding: "10px 14px",
+                        fontWeight: 800,
+                        background: "#0f172a",
+                        color: "#ffffff",
+                        font: "inherit",
+                        boxShadow: "0 4px 12px rgba(15, 23, 42, 0.12)",
+                      }}
+                    >
+                      Send reply
+                    </button>
+                  </div>
+                </form>
+              </section>
             </div>
 
             <aside style={{ display: "grid", gap: 18 }}>
