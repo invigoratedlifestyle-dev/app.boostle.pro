@@ -11,6 +11,7 @@ type TicketStatus = "open" | "in_progress" | "closed";
 
 type Ticket = {
   id: string;
+  ticket_number?: number | null;
   name: string;
   email: string;
   subject: string;
@@ -268,12 +269,6 @@ export default async function AdminTicketDetailPage({
         subject,
         message,
         status,
-        priority,
-        queue,
-        assigned_to,
-        store_url,
-        app_name,
-        category,
         created_at
       `,
     )
@@ -360,15 +355,7 @@ export default async function AdminTicketDetailPage({
     redirect(`/dashboard/tickets/${id}?tab=notes`);
   }
 
-  const typedTicket = ticket as Ticket & {
-    ticket_number?: number | null;
-    priority?: string | null;
-    queue?: string | null;
-    assigned_to?: string | null;
-    store_url?: string | null;
-    app_name?: string | null;
-    category?: string | null;
-  };
+  const typedTicket = ticket as Ticket;
   const returnTo = `/dashboard/tickets/${typedTicket.id}`;
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
@@ -1462,176 +1449,6 @@ export default async function AdminTicketDetailPage({
                         {typedTicket.id}
                       </p>
                     </div>
-
-                    {typedTicket.queue ? (
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#64748b",
-                          }}
-                        >
-                          Queue
-                        </p>
-
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#0f172a",
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          {typedTicket.queue}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {typedTicket.priority ? (
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#64748b",
-                          }}
-                        >
-                          Priority
-                        </p>
-
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#0f172a",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            textTransform: "capitalize",
-                          }}
-                        >
-                          {typedTicket.priority}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {typedTicket.assigned_to ? (
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#64748b",
-                          }}
-                        >
-                          Assigned to
-                        </p>
-
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#0f172a",
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          {typedTicket.assigned_to}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {typedTicket.category ? (
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#64748b",
-                          }}
-                        >
-                          Category
-                        </p>
-
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#0f172a",
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          {typedTicket.category}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {typedTicket.app_name ? (
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#64748b",
-                          }}
-                        >
-                          App
-                        </p>
-
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#0f172a",
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          {typedTicket.app_name}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {typedTicket.store_url ? (
-                      <div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#64748b",
-                          }}
-                        >
-                          Store URL
-                        </p>
-
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#0f172a",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {typedTicket.store_url}
-                        </p>
-                      </div>
-                    ) : null}
 
                     <div>
                       <p
