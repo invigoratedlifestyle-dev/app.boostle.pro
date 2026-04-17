@@ -318,6 +318,35 @@ function extractCustomerIdentityFromBody(input: {
   };
 }
 
+function isInternalSupportNotification(input: {
+  routingType: "new_ticket" | "existing_ticket" | "unknown";
+  senderEmail: string | null;
+  subject: string;
+  recipientEmail: string;
+}) {
+  const normalizedSubject = input.subject.trim().toLowerCase();
+  const normalizedRecipient = normalizeEmail(input.recipientEmail);
+
+  if (input.routingType !== "new_ticket") {
+    return false;
+  }
+
+  if (!isInternalSenderEmail(input.senderEmail)) {
+    return false;
+  }
+
+  if (normalizedRecipient !== "support@boostle.pro") {
+    return false;
+  }
+
+  return (
+    normalizedSubject.includes("new boostle support request") ||
+    /^\[ticket #\d+\]/i.test(input.subject.trim()) ||
+    normalizedSubject.startsWith("re: [ticket #") ||
+    normalizedSubject.startsWith("fwd: [ticket #")
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.text();
@@ -376,6 +405,28 @@ export async function POST(request: NextRequest) {
 
     const bodyText = apiContent.bodyText || fallbackContent.bodyText;
     const bodyHtml = apiContent.bodyHtml || fallbackContent.bodyHtml;
+
+    if (
+      isInternalSupportNotification({
+        routingType: routing.type,
+        senderEmail,
+        subject,
+        recipientEmail,
+      })
+    ) {
+      console.log("Ignoring internal support notification email", {
+        from: verified.data.from,
+        recipientEmail,
+        subject,
+        providerMessageId,
+      });
+
+      return ok({
+        ok: true,
+        ignored: true,
+        reason: "internal_support_notification",
+      });
+    }
 
     if (isInternalSenderEmail(senderEmail)) {
       const recovered = extractCustomerIdentityFromBody({
