@@ -668,9 +668,9 @@ export async function POST(request: NextRequest) {
     const appName = sanitizeText(body.appName) || "Boostle";
     const category = sanitizeText(body.category) || "General";
     const subject = sanitizeText(body.subject);
-    const message = sanitizeText(body.message);
+    const customerMessage = sanitizeText(body.message);
 
-    if (!name || !email || !subject || !message) {
+    if (!name || !email || !subject || !customerMessage) {
       return NextResponse.json<SupportApiResponse>(
         { ok: false, error: "Please complete all required fields." },
         { status: 400 },
@@ -699,7 +699,7 @@ export async function POST(request: NextRequest) {
       appName,
       category,
       subject,
-      message,
+      message: customerMessage,
     });
 
     let createdTicket: CreatedTicketRow | null = null;
@@ -798,7 +798,7 @@ export async function POST(request: NextRequest) {
           appName,
           subject,
           category,
-          message,
+          message: customerMessage,
           ticketLabel,
         });
       } catch (error) {
@@ -822,7 +822,7 @@ export async function POST(request: NextRequest) {
           appName,
           subject,
           storeUrl,
-          message,
+          message: customerMessage,
           supportEmail,
         });
       } catch (error) {
