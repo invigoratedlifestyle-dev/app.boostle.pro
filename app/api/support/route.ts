@@ -223,6 +223,31 @@ async function ensureUniquePublicThreadId(input: {
   return publicThreadId;
 }
 
+function buildInitialTicketMessage(input: {
+  name: string;
+  email: string;
+  storeUrl: string;
+  appName: string;
+  category: string;
+  subject: string;
+  message: string;
+}) {
+  const { name, email, storeUrl, appName, category, subject, message } = input;
+
+  return [
+    "New Boostle support request",
+    "",
+    `Name: ${name}`,
+    `Email: ${email}`,
+    `Store URL: ${storeUrl || "Not provided"}`,
+    `App: ${appName}`,
+    `Category: ${category}`,
+    `Subject: ${subject}`,
+    "",
+    message,
+  ].join("\n");
+}
+
 async function createSupportTicket(input: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
   name: string;
@@ -318,40 +343,6 @@ async function createLegacyTicket(input: {
     data: null,
     error: {
       message: "Too many schema fallback attempts while creating ticket in tickets.",
-    } as SupabaseLikeError,
-  };
-}
-
-async function insertTicketMessageWithSchemaFallback(input: {
-  supabase: ReturnType<typeof getSupabaseAdmin>;
-  values: Record<string, unknown>;
-}) {
-  const { supabase } = input;
-  const values = { ...input.values };
-
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const { error } = await supabase.from("ticket_messages").insert(values);
-
-    if (!error) {
-      return { error: null as SupabaseLikeError | null };
-    }
-
-    const missingColumn = getMissingColumnFromError(error);
-
-    if (missingColumn && missingColumn in values) {
-      console.warn(
-        `ticket_messages insert fallback: removing missing column "${missingColumn}" and retrying`,
-      );
-      delete values[missingColumn];
-      continue;
-    }
-
-    return { error: error as SupabaseLikeError | null };
-  }
-
-  return {
-    error: {
-      message: "Too many schema fallback attempts while creating ticket message.",
     } as SupabaseLikeError,
   };
 }
@@ -701,6 +692,15 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
+    const initialTicketMessage = buildInitialTicketMessage({
+      name,
+      email,
+      storeUrl,
+      appName,
+      category,
+      subject,
+      message,
+    });
 
     let createdTicket: CreatedTicketRow | null = null;
     let ticketTableName: "support_tickets" | "tickets" = "support_tickets";
@@ -710,7 +710,7 @@ export async function POST(request: NextRequest) {
       name,
       email,
       subject,
-      message,
+      message: initialTicketMessage,
     });
 
     if (supportTicketResult.data) {
@@ -737,7 +737,7 @@ export async function POST(request: NextRequest) {
         name,
         email,
         subject,
-        message,
+        message: initialTicketMessage,
         storeUrl,
         appName,
         category,
@@ -761,31 +761,6 @@ export async function POST(request: NextRequest) {
         { ok: false, error: "Failed creating support ticket." },
         { status: 500 },
       );
-    }
-
-    if (ticketTableName === "support_tickets" && createdTicket) {
-      const ticketMessageValues: Record<string, unknown> = {
-        ticket_id: createdTicket.id,
-        direction: "inbound",
-        source: "website",
-        sender_type: "customer",
-        sender_name: name,
-        sender_email: email,
-        body_text: message,
-        body_html: null,
-      };
-
-      const { error: createMessageError } = await insertTicketMessageWithSchemaFallback({
-        supabase,
-        values: ticketMessageValues,
-      });
-
-      if (createMessageError) {
-        console.error(
-          "Ticket created successfully, but failed creating ticket message row",
-          createMessageError,
-        );
-      }
     }
 
     const ticketNumber =
