@@ -243,6 +243,43 @@ function getTabStyle(isActive: boolean) {
   } as const;
 }
 
+function parseOriginalRequestDetails(message: string) {
+  const lines = message
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let summary = "";
+  const details: Array<{ label: string; value: string }> = [];
+  const extraLines: string[] = [];
+
+  for (const line of lines) {
+    const colonIndex = line.indexOf(":");
+
+    if (colonIndex > 0) {
+      const label = line.slice(0, colonIndex).trim();
+      const value = line.slice(colonIndex + 1).trim();
+
+      if (label && value) {
+        details.push({ label, value });
+        continue;
+      }
+    }
+
+    if (!summary) {
+      summary = line;
+    } else {
+      extraLines.push(line);
+    }
+  }
+
+  return {
+    summary,
+    details,
+    extraText: extraLines.join("\n").trim(),
+  };
+}
+
 export default async function AdminTicketDetailPage({
   params,
   searchParams,
@@ -359,6 +396,7 @@ export default async function AdminTicketDetailPage({
   const returnTo = `/dashboard/tickets/${typedTicket.id}`;
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
+  const originalRequest = parseOriginalRequestDetails(originalMessageBody);
 
   return (
     <main
@@ -550,6 +588,260 @@ export default async function AdminTicketDetailPage({
                 <>
                   <section
                     style={{
+                      background:
+                        "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
+                      border: "1px solid #dbe4f0",
+                      borderRadius: 14,
+                      overflow: "hidden",
+                      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 16,
+                        flexWrap: "wrap",
+                        padding: "12px 14px",
+                        background: "#f8fafc",
+                        borderBottom: "1px solid #dbe4f0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <h2
+                          style={{
+                            margin: 0,
+                            fontSize: 15,
+                            fontWeight: 800,
+                            color: "#0f172a",
+                          }}
+                        >
+                          Initial ticket details
+                        </h2>
+
+                        <span
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            background: "#eff6ff",
+                            color: "#1d4ed8",
+                            border: "1px solid #bfdbfe",
+                          }}
+                        >
+                          Original submission
+                        </span>
+                      </div>
+
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#64748b",
+                        }}
+                      >
+                        Submitted {formatDateTime(typedTicket.created_at)}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 16,
+                        display: "grid",
+                        gap: 16,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "56px minmax(0, 1fr)",
+                          gap: 14,
+                          alignItems: "start",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: 16,
+                            background:
+                              "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)",
+                            color: "#1d4ed8",
+                            display: "grid",
+                            placeItems: "center",
+                            fontWeight: 800,
+                            fontSize: 16,
+                            border: "1px solid #bfdbfe",
+                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.65)",
+                          }}
+                        >
+                          {getInitials(typedTicket.name, typedTicket.email)}
+                        </div>
+
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <h3
+                              style={{
+                                margin: 0,
+                                fontSize: 18,
+                                fontWeight: 800,
+                                color: "#0f172a",
+                              }}
+                            >
+                              {typedTicket.subject}
+                            </h3>
+
+                            <span
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: 999,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                background: "#ecfeff",
+                                color: "#0f766e",
+                                border: "1px solid #a5f3fc",
+                              }}
+                            >
+                              Customer request
+                            </span>
+                          </div>
+
+                          <p
+                            style={{
+                              margin: "8px 0 0",
+                              color: "#64748b",
+                              fontSize: 13,
+                            }}
+                          >
+                            Submitted by {typedTicket.name} · {typedTicket.email}
+                          </p>
+                        </div>
+                      </div>
+
+                      {originalRequest.summary ? (
+                        <div
+                          style={{
+                            padding: "14px 16px",
+                            borderRadius: 12,
+                            background: "#f8fafc",
+                            border: "1px solid #e2e8f0",
+                            color: "#122033",
+                            fontSize: 14,
+                            lineHeight: 1.7,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {originalRequest.summary}
+                        </div>
+                      ) : null}
+
+                      {originalRequest.details.length > 0 ? (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fit, minmax(220px, 1fr))",
+                            gap: 12,
+                          }}
+                        >
+                          {originalRequest.details.map((detail) => (
+                            <div
+                              key={`${detail.label}-${detail.value}`}
+                              style={{
+                                padding: "12px 14px",
+                                borderRadius: 12,
+                                background: "#ffffff",
+                                border: "1px solid #e2e8f0",
+                                boxShadow:
+                                  "0 4px 10px rgba(15, 23, 42, 0.03)",
+                              }}
+                            >
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  letterSpacing: "0.08em",
+                                  textTransform: "uppercase",
+                                  color: "#64748b",
+                                }}
+                              >
+                                {detail.label}
+                              </p>
+
+                              <p
+                                style={{
+                                  margin: "7px 0 0",
+                                  fontSize: 14,
+                                  lineHeight: 1.6,
+                                  fontWeight: 700,
+                                  color: "#0f172a",
+                                  wordBreak: "break-word",
+                                }}
+                              >
+                                {detail.value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {originalRequest.extraText ? (
+                        <div
+                          style={{
+                            padding: "14px 16px",
+                            borderRadius: 12,
+                            background: "#ffffff",
+                            border: "1px solid #e2e8f0",
+                            whiteSpace: "pre-wrap",
+                            lineHeight: 1.7,
+                            color: "#122033",
+                            fontSize: 14,
+                          }}
+                        >
+                          {originalRequest.extraText}
+                        </div>
+                      ) : null}
+
+                      {!originalRequest.summary &&
+                      originalRequest.details.length === 0 &&
+                      !originalRequest.extraText ? (
+                        <div
+                          style={{
+                            padding: "14px 16px",
+                            borderRadius: 12,
+                            background: "#ffffff",
+                            border: "1px solid #e2e8f0",
+                            whiteSpace: "pre-wrap",
+                            lineHeight: 1.7,
+                            color: "#122033",
+                            fontSize: 14,
+                          }}
+                        >
+                          {originalMessageBody || "(No message body captured)"}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section
+                    style={{
                       background: "#ffffff",
                       border: "1px solid #dbe4f0",
                       borderRadius: 14,
@@ -603,7 +895,7 @@ export default async function AdminTicketDetailPage({
                             fontWeight: 700,
                           }}
                         >
-                          {conversation.length + 1}
+                          {conversation.length}
                         </span>
                       </div>
 
@@ -626,120 +918,6 @@ export default async function AdminTicketDetailPage({
                         background: "#ffffff",
                       }}
                     >
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "44px minmax(0, 1fr)",
-                          gap: 12,
-                          alignItems: "start",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 44,
-                            height: 44,
-                            borderRadius: 12,
-                            background: "#dbeafe",
-                            color: "#1d4ed8",
-                            display: "grid",
-                            placeItems: "center",
-                            fontWeight: 800,
-                            fontSize: 13,
-                            border: "1px solid #bfdbfe",
-                          }}
-                        >
-                          {getInitials(typedTicket.name, typedTicket.email)}
-                        </div>
-
-                        <article
-                          style={{
-                            background: "#ffffff",
-                            border: "1px solid #e2e8f0",
-                            borderRadius: 12,
-                            padding: 14,
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "flex-start",
-                              gap: 12,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <div style={{ minWidth: 0 }}>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                <p
-                                  style={{
-                                    margin: 0,
-                                    fontSize: 14,
-                                    fontWeight: 800,
-                                    color: "#0f172a",
-                                  }}
-                                >
-                                  {typedTicket.name}
-                                </p>
-
-                                <span
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderRadius: 999,
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    background: "#ecfeff",
-                                    color: "#0f766e",
-                                    border: "1px solid #a5f3fc",
-                                  }}
-                                >
-                                  Original request
-                                </span>
-                              </div>
-
-                              <p
-                                style={{
-                                  margin: "5px 0 0",
-                                  fontSize: 12,
-                                  color: "#64748b",
-                                }}
-                              >
-                                {typedTicket.email}
-                              </p>
-                            </div>
-
-                            <p
-                              style={{
-                                margin: 0,
-                                fontSize: 12,
-                                color: "#64748b",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {formatDateTime(typedTicket.created_at)}
-                            </p>
-                          </div>
-
-                          <div
-                            style={{
-                              marginTop: 12,
-                              whiteSpace: "pre-wrap",
-                              lineHeight: 1.7,
-                              color: "#122033",
-                              fontSize: 14,
-                            }}
-                          >
-                            {originalMessageBody || "(No message body captured)"}
-                          </div>
-                        </article>
-                      </div>
-
                       {conversation.length === 0 ? (
                         <div
                           style={{
@@ -1110,7 +1288,10 @@ export default async function AdminTicketDetailPage({
                       </span>
                     </div>
 
-                    <form action={addTicketNoteAction} style={{ display: "grid", gap: 0 }}>
+                    <form
+                      action={addTicketNoteAction}
+                      style={{ display: "grid", gap: 0 }}
+                    >
                       <div style={{ padding: 14 }}>
                         <label
                           htmlFor="noteBody"
