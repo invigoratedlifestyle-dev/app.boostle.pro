@@ -204,38 +204,34 @@ function getMessageMeta(item: ConversationItem) {
 }
 
 function parseOriginalRequestDetails(message: string) {
-  const lines = message
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = message.split("\n").map((line) => line.trim());
 
   const details: Array<{ label: string; value: string }> = [];
   const messageLines: string[] = [];
-  let summary = "";
-
   let reachedMessageBlock = false;
 
   for (const line of lines) {
-    const colonIndex = line.indexOf(":");
-
-    if (colonIndex > 0 && !reachedMessageBlock) {
-      const label = line.slice(0, colonIndex).trim();
-      const value = line.slice(colonIndex + 1).trim();
-      const normalizedLabel = label.toLowerCase();
-
-      if (label && value) {
-        details.push({ label, value });
-
-        if (normalizedLabel === "subject" && !summary) {
-          summary = value;
-        }
-
-        continue;
-      }
-    }
+    if (!line) continue;
 
     if (line.toLowerCase() === "new boostle support request") {
       continue;
+    }
+
+    if (reachedMessageBlock) {
+      messageLines.push(line);
+      continue;
+    }
+
+    const colonIndex = line.indexOf(":");
+
+    if (colonIndex > 0) {
+      const label = line.slice(0, colonIndex).trim();
+      const value = line.slice(colonIndex + 1).trim();
+
+      if (label && value) {
+        details.push({ label, value });
+        continue;
+      }
     }
 
     reachedMessageBlock = true;
@@ -243,44 +239,16 @@ function parseOriginalRequestDetails(message: string) {
   }
 
   return {
-    summary,
     details,
-    extraText: messageLines.join("\n").trim(),
+    message: messageLines.join("\n").trim(),
   };
 }
 
-function getInitialConversationBody(input: {
-  originalMessageBody: string;
-  originalRequest: ReturnType<typeof parseOriginalRequestDetails>;
-  ticket: Ticket;
-}) {
-  const { originalMessageBody, originalRequest, ticket } = input;
-
-  if (originalRequest.extraText) {
-    return originalRequest.extraText;
-  }
-
-  const subjectLine = `Subject: ${ticket.subject}`.toLowerCase();
-  const cleaned = originalMessageBody
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => line.toLowerCase() !== "new boostle support request")
-    .filter((line) => !line.toLowerCase().startsWith("name:"))
-    .filter((line) => !line.toLowerCase().startsWith("email:"))
-    .filter((line) => !line.toLowerCase().startsWith("store url:"))
-    .filter((line) => !line.toLowerCase().startsWith("app:"))
-    .filter((line) => !line.toLowerCase().startsWith("category:"))
-    .filter((line) => line.toLowerCase() !== subjectLine);
-
-  return cleaned.join("\n").trim();
-}
-
 function getVisibleInitialDetails(input: {
-  originalRequest: ReturnType<typeof parseOriginalRequestDetails>;
+  parsed: ReturnType<typeof parseOriginalRequestDetails>;
   ticket: Ticket;
 }) {
-  const details = input.originalRequest.details.filter((detail) => {
+  const details = input.parsed.details.filter((detail) => {
     const normalized = detail.label.trim().toLowerCase();
     return !["subject", "message"].includes(normalized);
   });
@@ -352,14 +320,10 @@ export default async function AdminTicketDetailPage({
   const returnTo = `/dashboard/tickets/${typedTicket.id}`;
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
-  const originalRequest = parseOriginalRequestDetails(originalMessageBody);
-const initialConversationBody = getInitialConversationBody({
-  originalMessageBody,
-  originalRequest,
-  ticket: typedTicket,
-});
+  const parsedOriginalRequest = parseOriginalRequestDetails(originalMessageBody);
+  const initialConversationBody = parsedOriginalRequest.message;
   const initialDetails = getVisibleInitialDetails({
-    originalRequest,
+    parsed: parsedOriginalRequest,
     ticket: typedTicket,
   });
 
