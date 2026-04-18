@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,11 @@ type InboundPayload = {
   [key: string]: unknown;
 };
 
+type ReceivedEmailContent = {
+  text: string;
+  html: string;
+};
+
 function getEnv(name: string): string {
   const value = process.env[name]?.trim();
 
@@ -51,6 +57,10 @@ function getSupabaseAdmin() {
       },
     },
   );
+}
+
+function getResend() {
+  return new Resend(getEnv("RESEND_API_KEY"));
 }
 
 function normalizeEmail(value: string): string {
@@ -369,6 +379,67 @@ async function parseInboundPayload(request: NextRequest): Promise<{
   throw new Error(`Unsupported content type: ${contentType || "unknown"}`);
 }
 
+function getObjectField(
+  value: unknown,
+  key: string,
+): unknown {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  return (value as Record<string, unknown>)[key];
+}
+
+function getStringField(
+  value: unknown,
+  key: string,
+): string {
+  const fieldValue = getObjectField(value, key);
+  return typeof fieldValue === "string" ? fieldValue : "";
+}
+
+async function getReceivedEmailContent(emailId: string): Promise<ReceivedEmailContent> {
+  const resend = getResend();
+  const response = await resend.emails.receiving.get(emailId);
+
+  const responseData = getObjectField(response, "data");
+
+  const text = getStringField(responseData, "text");
+  const html = getStringField(responseData, "html");
+
+  if (text || html) {
+    return { text, html };
+  }
+
+  const rawData = getObjectField(responseData, "raw");
+  const downloadUrl = getStringField(rawData, "download_url");
+
+  if (downloadUrl) {
+    try {
+      const rawResponse = await fetch(downloadUrl);
+
+      if (rawResponse.ok) {
+        const rawEmailContent = await rawResponse.text();
+
+        return {
+          text: rawEmailContent,
+          html: "",
+        };
+      }
+    } catch (error) {
+      console.error("Failed downloading raw received email", {
+        emailId,
+        error,
+      });
+    }
+  }
+
+  return {
+    text: "",
+    html: "",
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { payload, rawBody } = await parseInboundPayload(request);
@@ -446,7 +517,10 @@ export async function POST(request: NextRequest) {
       ),
     );
 
-    const payloadBody =
+    const receivedEmailId =
+      typeof nestedData.email_id === "string" ? nestedData.email_id : "";
+
+    let payloadBody =
       (typeof payload.text === "string" && payload.text.trim()) ||
       (typeof payload.html === "string" && stripHtml(payload.html).trim()) ||
       (typeof nestedData.text === "string" && nestedData.text.trim()) ||
@@ -467,6 +541,23 @@ export async function POST(request: NextRequest) {
         stripHtml(nestedEmail.body_html).trim()) ||
       "";
 
+    if (!payloadBody && receivedEmailId) {
+      try {
+        const receivedEmailContent = await getReceivedEmailContent(receivedEmailId);
+
+        payloadBody =
+          (receivedEmailContent.text && receivedEmailContent.text.trim()) ||
+          (receivedEmailContent.html &&
+            stripHtml(receivedEmailContent.html).trim()) ||
+          "";
+      } catch (error) {
+        console.error("Failed retrieving received email content", {
+          receivedEmailId,
+          error,
+        });
+      }
+    }
+
     const cleanedBody = cleanInboundBody(payloadBody);
 
     console.log("Inbound email received", {
@@ -484,6 +575,7 @@ export async function POST(request: NextRequest) {
       payloadKeys: Object.keys(payloadRecord),
       nestedDataKeys: Object.keys(nestedData),
       nestedEmailKeys: Object.keys(nestedEmail),
+      receivedEmailId,
       addressBasedThreadId,
       candidateBasedThreadId,
       rawBodyThreadId,
@@ -523,6 +615,7 @@ export async function POST(request: NextRequest) {
         nestedDataHasHtml: typeof nestedData.html === "string",
         nestedDataKeys: Object.keys(nestedData),
         nestedEmailKeys: Object.keys(nestedEmail),
+        receivedEmailId,
         rawBodyPreview,
       });
 
