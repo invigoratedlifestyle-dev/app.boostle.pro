@@ -20,8 +20,6 @@ type Ticket = {
   store_url?: string | null;
   app_name?: string | null;
   category?: string | null;
-  customer_name?: string | null;
-  customer_email?: string | null;
 };
 
 type TicketMessage = {
@@ -262,11 +260,11 @@ function parseOriginalRequestDetails(message: string) {
 }
 
 function getPrimaryName(ticket: Ticket) {
-  return ticket.name?.trim() || ticket.customer_name?.trim() || "Customer";
+  return ticket.name?.trim() || "Customer";
 }
 
 function getPrimaryEmail(ticket: Ticket) {
-  return ticket.email?.trim() || ticket.customer_email?.trim() || "";
+  return ticket.email?.trim() || "";
 }
 
 function getVisibleInitialDetails(input: {
@@ -348,8 +346,6 @@ export default async function AdminTicketDetailPage({
         ticket_number,
         name,
         email,
-        customer_name,
-        customer_email,
         subject,
         message,
         status,
