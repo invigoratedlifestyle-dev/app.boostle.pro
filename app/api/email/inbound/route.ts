@@ -386,6 +386,10 @@ export async function POST(request: NextRequest) {
       typeof payloadRecord.data === "object" && payloadRecord.data !== null
         ? (payloadRecord.data as Record<string, unknown>)
         : {};
+    const nestedEmail =
+      typeof nestedData.email === "object" && nestedData.email !== null
+        ? (nestedData.email as Record<string, unknown>)
+        : {};
 
     const recipientCandidates = collectRecipientCandidates({
       ...payloadRecord,
@@ -447,6 +451,20 @@ export async function POST(request: NextRequest) {
       (typeof payload.html === "string" && stripHtml(payload.html).trim()) ||
       (typeof nestedData.text === "string" && nestedData.text.trim()) ||
       (typeof nestedData.html === "string" && stripHtml(nestedData.html).trim()) ||
+      (typeof nestedData.body === "string" && nestedData.body.trim()) ||
+      (typeof nestedData.body_text === "string" && nestedData.body_text.trim()) ||
+      (typeof nestedData.body_html === "string" &&
+        stripHtml(nestedData.body_html).trim()) ||
+      (typeof nestedData.reply === "string" && nestedData.reply.trim()) ||
+      (typeof nestedData.reply_text === "string" && nestedData.reply_text.trim()) ||
+      (typeof nestedData.reply_html === "string" &&
+        stripHtml(nestedData.reply_html).trim()) ||
+      (typeof nestedEmail.text === "string" && nestedEmail.text.trim()) ||
+      (typeof nestedEmail.html === "string" && stripHtml(nestedEmail.html).trim()) ||
+      (typeof nestedEmail.body === "string" && nestedEmail.body.trim()) ||
+      (typeof nestedEmail.body_text === "string" && nestedEmail.body_text.trim()) ||
+      (typeof nestedEmail.body_html === "string" &&
+        stripHtml(nestedEmail.body_html).trim()) ||
       "";
 
     const cleanedBody = cleanInboundBody(payloadBody);
@@ -465,6 +483,7 @@ export async function POST(request: NextRequest) {
       rawBodyRecipients,
       payloadKeys: Object.keys(payloadRecord),
       nestedDataKeys: Object.keys(nestedData),
+      nestedEmailKeys: Object.keys(nestedEmail),
       addressBasedThreadId,
       candidateBasedThreadId,
       rawBodyThreadId,
@@ -502,6 +521,9 @@ export async function POST(request: NextRequest) {
         payloadHasHtml: typeof payload.html === "string",
         nestedDataHasText: typeof nestedData.text === "string",
         nestedDataHasHtml: typeof nestedData.html === "string",
+        nestedDataKeys: Object.keys(nestedData),
+        nestedEmailKeys: Object.keys(nestedEmail),
+        rawBodyPreview,
       });
 
       return NextResponse.json({ ok: true });
