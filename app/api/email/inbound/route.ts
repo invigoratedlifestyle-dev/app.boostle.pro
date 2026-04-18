@@ -231,6 +231,10 @@ function collectRecipientCandidates(payload: Record<string, unknown>): string[] 
         values.push(record.cc);
       }
 
+      if (typeof record.raw === "string") {
+        values.push(record.raw);
+      }
+
       if (Array.isArray(record.to)) {
         pushValue(record.to);
       }
@@ -248,12 +252,14 @@ function collectRecipientCandidates(payload: Record<string, unknown>): string[] 
     const envelope = payload.envelope as Record<string, unknown>;
     pushValue(envelope.to);
     pushValue(envelope.cc);
+    pushValue(envelope.raw);
   }
 
   if (typeof payload.headers === "object" && payload.headers !== null) {
     const headers = payload.headers as Record<string, unknown>;
     pushValue(headers.to);
     pushValue(headers.cc);
+    pushValue(headers.raw);
   }
 
   return values;
@@ -271,27 +277,38 @@ function extractReplyThreadIdFromCandidates(candidates: string[]) {
   return null;
 }
 
-async function parseInboundPayload(request: NextRequest) {
+function extractReplyThreadIdFromRawBody(raw: string) {
+  if (!raw) return null;
+
+  const match = raw.match(/reply\+([^@"'>\s]+)@/i);
+  return match?.[1] ?? null;
+}
+
+async function parseInboundPayload(request: NextRequest): Promise<{
+  payload: InboundPayload;
+  rawBody: string;
+}> {
   const contentType = request.headers.get("content-type") || "";
+  const rawBody = await request.text();
 
   if (contentType.includes("application/json")) {
-    return (await request.json()) as InboundPayload;
+    return {
+      payload: JSON.parse(rawBody) as InboundPayload,
+      rawBody,
+    };
   }
 
-  if (
-    contentType.includes("application/x-www-form-urlencoded") ||
-    contentType.includes("multipart/form-data")
-  ) {
-    const formData = await request.formData();
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    const params = new URLSearchParams(rawBody);
 
-    const to = formData.getAll("to");
-    const cc = formData.getAll("cc");
-    const from = formData.get("from");
-    const subject = formData.get("subject");
-    const text = formData.get("text");
-    const html = formData.get("html");
-    const envelope = formData.get("envelope");
-    const headers = formData.get("headers");
+    const to = params.getAll("to");
+    const cc = params.getAll("cc");
+    const from = params.get("from");
+    const subject = params.get("subject");
+    const text = params.get("text");
+    const html = params.get("html");
+    const envelope = params.get("envelope");
+    const headers = params.get("headers");
 
     let parsedEnvelope: Record<string, unknown> | undefined;
     let parsedHeaders: Record<string, unknown> | undefined;
@@ -313,15 +330,18 @@ async function parseInboundPayload(request: NextRequest) {
     }
 
     return {
-      from: typeof from === "string" ? from : undefined,
-      to: to.map((value) => String(value)),
-      cc: cc.map((value) => String(value)),
-      subject: typeof subject === "string" ? subject : undefined,
-      text: typeof text === "string" ? text : undefined,
-      html: typeof html === "string" ? html : undefined,
-      envelope: parsedEnvelope,
-      headers: parsedHeaders,
-    } satisfies InboundPayload;
+      rawBody,
+      payload: {
+        from: from || undefined,
+        to,
+        cc,
+        subject: subject || undefined,
+        text: text || undefined,
+        html: html || undefined,
+        envelope: parsedEnvelope,
+        headers: parsedHeaders,
+      } satisfies InboundPayload,
+    };
   }
 
   throw new Error(`Unsupported content type: ${contentType || "unknown"}`);
@@ -329,7 +349,7 @@ async function parseInboundPayload(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = await parseInboundPayload(request);
+    const { payload, rawBody } = await parseInboundPayload(request);
     const supabase = getSupabaseAdmin();
 
     const toAddresses = toAddressList(payload.to);
@@ -341,6 +361,7 @@ export async function POST(request: NextRequest) {
 
     const payloadRecord = payload as Record<string, unknown>;
     const recipientCandidates = collectRecipientCandidates(payloadRecord);
+
     const addressBasedThreadId = extractReplyThreadIdFromCandidates(
       allRecipientAddresses
         .map((entry) => {
@@ -352,24 +373,71 @@ export async function POST(request: NextRequest) {
         })
         .filter(Boolean),
     );
-    const threadId =
-      addressBasedThreadId || extractReplyThreadIdFromCandidates(recipientCandidates);
 
-    const rawBody =
+    const candidateBasedThreadId =
+      extractReplyThreadIdFromCandidates(recipientCandidates);
+
+    const rawBodyThreadId = extractReplyThreadIdFromRawBody(rawBody);
+
+    const threadId =
+      addressBasedThreadId || candidateBasedThreadId || rawBodyThreadId;
+
+    const rawBodyPreview = rawBody.slice(0, 500);
+
+    const rawBodyTextMatch = rawBody.match(/(?:^|[&"\s])text=([^&]+)/i);
+    const decodedRawText = rawBodyTextMatch?.[1]
+      ? decodeURIComponent(rawBodyTextMatch[1].replace(/\+/g, " "))
+      : "";
+
+    const rawBodyHtmlMatch = rawBody.match(/(?:^|[&"\s])html=([^&]+)/i);
+    const decodedRawHtml = rawBodyHtmlMatch?.[1]
+      ? decodeURIComponent(rawBodyHtmlMatch[1].replace(/\+/g, " "))
+      : "";
+
+    const rawBodyFromMatch = rawBody.match(/(?:^|[&"\s])from=([^&]+)/i);
+    const rawBodyFrom = rawBodyFromMatch?.[1]
+      ? decodeURIComponent(rawBodyFromMatch[1].replace(/\+/g, " "))
+      : "";
+
+    const senderEmailFromRaw = senderEmail || extractEmailAddress(rawBodyFrom);
+
+    const rawBodyContent =
+      decodedRawText.trim() ||
+      (decodedRawHtml.trim() ? stripHtml(decodedRawHtml).trim() : "") ||
+      "";
+
+    const rawBodyRecipients = Array.from(
+      new Set(
+        Array.from(
+          rawBody.matchAll(/[a-zA-Z0-9._%+-]*reply\+[^@\s"'<>]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi),
+        ).map((match) => match[0]),
+      ),
+    );
+
+    const rawBodyFallbackBody = rawBodyContent || rawBody;
+
+    const rawBodyBasedBody = cleanInboundBody(rawBodyFallbackBody);
+
+    const payloadBody =
       (typeof payload.text === "string" && payload.text.trim()) ||
       (typeof payload.html === "string" && stripHtml(payload.html).trim()) ||
       "";
 
-    const cleanedBody = cleanInboundBody(rawBody);
+    const cleanedBody = cleanInboundBody(payloadBody || rawBodyBasedBody);
 
     console.log("Inbound email received", {
       subject: payload.subject || "",
-      senderEmail,
+      senderEmail: senderEmailFromRaw,
       recipients: allRecipientAddresses
         .map((entry) => extractEmailAddress(entry))
         .filter(Boolean),
       recipientCandidates,
+      rawBodyRecipients,
       payloadKeys: Object.keys(payloadRecord),
+      addressBasedThreadId,
+      candidateBasedThreadId,
+      rawBodyThreadId,
+      rawBodyPreview,
       threadId,
       hasBody: Boolean(cleanedBody),
     });
@@ -378,12 +446,13 @@ export async function POST(request: NextRequest) {
       console.warn("Inbound email ignored: no reply thread id found", {
         to: allRecipientAddresses,
         recipientCandidates,
+        rawBodyRecipients,
       });
 
       return NextResponse.json({ ok: true });
     }
 
-    if (!senderEmail) {
+    if (!senderEmailFromRaw) {
       console.warn("Inbound email ignored: sender email missing or invalid");
       return NextResponse.json({ ok: true });
     }
@@ -391,7 +460,7 @@ export async function POST(request: NextRequest) {
     if (!cleanedBody) {
       console.warn("Inbound email ignored: empty cleaned body", {
         threadId,
-        senderEmail,
+        senderEmail: senderEmailFromRaw,
       });
 
       return NextResponse.json({ ok: true });
@@ -415,7 +484,7 @@ export async function POST(request: NextRequest) {
     if (!ticket) {
       console.warn("Inbound email ignored: no matching support ticket found", {
         threadId,
-        senderEmail,
+        senderEmail: senderEmailFromRaw,
       });
 
       return NextResponse.json({ ok: true });
@@ -425,7 +494,7 @@ export async function POST(request: NextRequest) {
       ticket_id: ticket.id,
       direction: "inbound",
       sender_name: senderName,
-      sender_email: senderEmail,
+      sender_email: senderEmailFromRaw,
       body_text: cleanedBody,
     });
 
@@ -453,7 +522,7 @@ export async function POST(request: NextRequest) {
     console.log("Inbound email linked to support ticket", {
       ticketId: ticket.id,
       threadId,
-      senderEmail,
+      senderEmail: senderEmailFromRaw,
     });
 
     return NextResponse.json({ ok: true });
