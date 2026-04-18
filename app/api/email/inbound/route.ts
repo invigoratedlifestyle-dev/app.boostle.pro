@@ -284,6 +284,28 @@ function extractReplyThreadIdFromRawBody(raw: string) {
   return match?.[1] ?? null;
 }
 
+function extractFirstEmailFromRawBody(raw: string) {
+  if (!raw) return null;
+
+  const fromHeaderMatch = raw.match(
+    /(?:^|[\n\r&\s])from[:=]\s*("?[^"\n\r&]*"?\s*<)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+  );
+
+  if (fromHeaderMatch?.[2]) {
+    return normalizeEmail(fromHeaderMatch[2]);
+  }
+
+  const genericMatch = raw.match(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+  );
+
+  if (genericMatch?.[1]) {
+    return normalizeEmail(genericMatch[1]);
+  }
+
+  return null;
+}
+
 async function parseInboundPayload(request: NextRequest): Promise<{
   payload: InboundPayload;
   rawBody: string;
@@ -399,7 +421,10 @@ export async function POST(request: NextRequest) {
       ? decodeURIComponent(rawBodyFromMatch[1].replace(/\+/g, " "))
       : "";
 
-    const senderEmailFromRaw = senderEmail || extractEmailAddress(rawBodyFrom);
+    const senderEmailFromRaw =
+      senderEmail ||
+      extractEmailAddress(rawBodyFrom) ||
+      extractFirstEmailFromRawBody(rawBody);
 
     const rawBodyContent =
       decodedRawText.trim() ||
@@ -409,7 +434,9 @@ export async function POST(request: NextRequest) {
     const rawBodyRecipients = Array.from(
       new Set(
         Array.from(
-          rawBody.matchAll(/[a-zA-Z0-9._%+-]*reply\+[^@\s"'<>]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi),
+          rawBody.matchAll(
+            /[a-zA-Z0-9._%+-]*reply\+[^@\s"'<>]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+          ),
         ).map((match) => match[0]),
       ),
     );
@@ -427,7 +454,9 @@ export async function POST(request: NextRequest) {
 
     console.log("Inbound email received", {
       subject: payload.subject || "",
-      senderEmail: senderEmailFromRaw,
+      senderEmail,
+      senderEmailFromRaw,
+      rawBodyFrom,
       recipients: allRecipientAddresses
         .map((entry) => extractEmailAddress(entry))
         .filter(Boolean),
@@ -453,7 +482,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (!senderEmailFromRaw) {
-      console.warn("Inbound email ignored: sender email missing or invalid");
+      console.warn("Inbound email ignored: sender email missing or invalid", {
+        rawBodyFrom,
+        payloadFrom: payload.from,
+        rawBodyPreview,
+      });
+
       return NextResponse.json({ ok: true });
     }
 
