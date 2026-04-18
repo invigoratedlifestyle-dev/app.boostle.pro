@@ -1,68 +1,39 @@
-import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
-import { Webhook } from "svix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type TicketStatus = "open" | "in_progress" | "closed";
+type InboundAddress =
+  | string
+  | {
+      email?: string;
+      address?: string;
+      name?: string;
+    };
 
-type TicketRow = {
-  id: string;
-  public_thread_id: string;
-  status: TicketStatus;
-};
-
-type ReceivedAttachmentMeta = {
-  id?: string;
-  filename?: string;
-  content_type?: string;
-  size?: number;
-  download_url?: string;
-};
-
-type ResendReceivedEvent = {
-  type: "email.received";
-  created_at: string;
-  data: {
-    email_id: string;
-    created_at: string;
-    from: string;
-    to: string[] | string;
-    cc?: string[] | string;
-    bcc?: string[] | string;
-    subject?: string;
-    message_id?: string;
-    attachments?: ReceivedAttachmentMeta[];
-    text?: string | null;
-    html?: string | null;
-    body?: string | null;
-    raw?: string;
-    raw_email?: string;
-    rawEmail?: string;
-    payload?: string;
-  };
-};
-
-type ResendReceivedEmailResponse = {
-  text?: string | null;
-  html?: string | null;
-  subject?: string | null;
-  from?: string | null;
-  to?: string[] | null;
-  cc?: string[] | null;
-  bcc?: string[] | null;
-  attachments?: ReceivedAttachmentMeta[] | null;
+type InboundPayload = {
+  from?: string | { email?: string; address?: string; name?: string };
+  to?: InboundAddress | InboundAddress[];
+  cc?: InboundAddress | InboundAddress[];
+  subject?: string;
+  text?: string;
+  html?: string;
 };
 
 function getEnv(name: string): string {
-  const value = process.env[name];
+  const value = process.env[name]?.trim();
+
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
+
   return value;
+}
+
+function getOptionalEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value || null;
 }
 
 function getSupabaseAdmin() {
@@ -71,149 +42,146 @@ function getSupabaseAdmin() {
     getEnv("SUPABASE_SERVICE_ROLE_KEY"),
     {
       auth: {
-        autoRefreshToken: false,
         persistSession: false,
+        autoRefreshToken: false,
       },
     },
   );
 }
 
-function getResendClient() {
-  return new Resend(getEnv("RESEND_API_KEY"));
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
 }
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-function extractEmailAddress(input: string | null | undefined): string | null {
+function extractEmailAddress(input: unknown): string | null {
   if (!input) return null;
 
+  if (typeof input === "object" && input !== null) {
+    const maybeAddress =
+      "email" in input && typeof input.email === "string"
+        ? input.email
+        : "address" in input && typeof input.address === "string"
+          ? input.address
+          : null;
+
+    return maybeAddress && isValidEmail(maybeAddress)
+      ? normalizeEmail(maybeAddress)
+      : null;
+  }
+
+  if (typeof input !== "string") {
+    return null;
+  }
+
   const trimmed = input.trim();
-  const match = trimmed.match(/<([^>]+)>/);
+  const bracketMatch = trimmed.match(/<([^>]+)>/);
 
-  if (match?.[1]) {
-    return normalizeEmail(match[1]);
+  if (bracketMatch?.[1]) {
+    const email = bracketMatch[1].trim();
+    return isValidEmail(email) ? normalizeEmail(email) : null;
   }
 
-  if (trimmed.includes("@")) {
-    return normalizeEmail(trimmed);
-  }
-
-  return null;
+  return isValidEmail(trimmed) ? normalizeEmail(trimmed) : null;
 }
 
-function extractDisplayName(input: string | null | undefined): string | null {
+function extractDisplayName(input: unknown): string | null {
   if (!input) return null;
 
+  if (typeof input === "object" && input !== null) {
+    if ("name" in input && typeof input.name === "string" && input.name.trim()) {
+      return input.name.trim();
+    }
+
+    return null;
+  }
+
+  if (typeof input !== "string") {
+    return null;
+  }
+
   const trimmed = input.trim();
-  const index = trimmed.indexOf("<");
+  const match = trimmed.match(/^(.*?)<[^>]+>$/);
 
-  if (index > 0) {
-    const name = trimmed.slice(0, index).trim().replace(/^"|"$/g, "");
-    return name || null;
+  if (!match?.[1]) {
+    return null;
   }
 
-  return null;
+  const name = match[1].trim().replace(/^"|"$/g, "");
+  return name || null;
 }
 
-function parseRouting(recipientEmail: string) {
-  const normalized = normalizeEmail(recipientEmail);
-
-  if (normalized === "support@boostle.pro") {
-    return { type: "new_ticket" as const };
-  }
-
-  const match = normalized.match(/^reply\+([a-z0-9_-]+)@boostle\.pro$/i);
-
-  if (match) {
-    return {
-      type: "existing_ticket" as const,
-      publicThreadId: match[1],
-    };
-  }
-
-  return { type: "unknown" as const };
+function toAddressList(input: unknown): InboundAddress[] {
+  if (!input) return [];
+  return Array.isArray(input) ? input : [input as InboundAddress];
 }
 
-function toEmailArray(value: string[] | string | undefined): string[] {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
-}
+function extractReplyThreadId(addresses: InboundAddress[]) {
+  for (const entry of addresses) {
+    const email = extractEmailAddress(entry);
 
-function pickRecipient(to: string[]): string | null {
-  for (const value of to) {
-    const email = extractEmailAddress(value);
     if (!email) continue;
 
-    if (
-      email === "support@boostle.pro" ||
-      /^reply\+[a-z0-9_-]+@boostle\.pro$/i.test(email)
-    ) {
-      return email;
+    const match = email.match(/^reply\+([^@]+)@/i);
+
+    if (match?.[1]) {
+      return match[1];
     }
   }
 
   return null;
 }
 
-function generatePublicThreadId(length = 8): string {
-  return randomBytes(16)
-    .toString("base64url")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .slice(0, length);
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<\/(p|div|br|li|tr|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+    .replace(/<li>/gi, "- ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"');
 }
 
-function badRequest(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 });
-}
+function cleanInboundBody(input: string) {
+  if (!input) return "";
 
-function ok(data: Record<string, unknown>) {
-  return NextResponse.json(data, { status: 200 });
-}
+  const normalized = input.replace(/\r\n/g, "\n").trim();
 
-function verifyWebhookWithSvix(
-  payload: string,
-  request: NextRequest,
-): ResendReceivedEvent {
-  const webhook = new Webhook(getEnv("RESEND_WEBHOOK_SECRET"));
-
-  return webhook.verify(payload, {
-    "svix-id": request.headers.get("svix-id")!,
-    "svix-timestamp": request.headers.get("svix-timestamp")!,
-    "svix-signature": request.headers.get("svix-signature")!,
-  }) as ResendReceivedEvent;
-}
-
-function trimQuotedReply(text: string): string {
-  if (!text) return "";
-
-  const normalized = text.replace(/\r\n/g, "\n");
-
-  const patterns = [
-    /\nOn .* wrote:/i,
-    /\nFrom: .*/i,
-    /\nSent: .*/i,
-    /\nTo: .*/i,
-    /\nSubject: .*/i,
-    /\n---+.*/i,
-  ];
-
-  let trimmed = normalized;
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(trimmed);
-    if (match && typeof match.index === "number") {
-      trimmed = trimmed.slice(0, match.index);
-    }
-  }
-
-  const lines = trimmed.split("\n");
+  if (!normalized) return "";
+  const lines = normalized.split("\n");
   const cleanLines: string[] = [];
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
     const currentLine = line.trim();
+    const nextLine = (lines[i + 1] ?? "").trim();
+
+    const isQuoteHeaderStart =
+      /^On .+<.+@.+>$/.test(currentLine) ||
+      /^On .+wrote:$/i.test(currentLine) ||
+      /^From:\s.+/i.test(currentLine) ||
+      /^Sent:\s.+/i.test(currentLine) ||
+      /^To:\s.+/i.test(currentLine) ||
+      /^Cc:\s.+/i.test(currentLine) ||
+      /^Subject:\s.+/i.test(currentLine) ||
+      /^-{-}.*Original Message.*-{-}$/i.test(currentLine) ||
+      /^_{2,}$/.test(currentLine) ||
+      /^-{3,}$/.test(currentLine);
+
+    const isTwoLineQuoteHeader =
+      /^On .+<.+@.+>$/.test(currentLine) && /^wrote:$/i.test(nextLine);
+
+    if (isQuoteHeaderStart || isTwoLineQuoteHeader) {
+      break;
+    }
 
     if (currentLine.startsWith(">") || currentLine.startsWith("|")) {
       continue;
@@ -222,430 +190,159 @@ function trimQuotedReply(text: string): string {
     cleanLines.push(line);
   }
 
-  return cleanLines.join("\n").trim();
+  return cleanLines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-async function fetchReceivedEmailContent(
-  emailId: string,
-): Promise<{ bodyText: string; bodyHtml: string | null }> {
-  try {
-    const resend = getResendClient();
-    const result = await resend.emails.receiving.get(emailId);
+async function parseInboundPayload(request: NextRequest) {
+  const contentType = request.headers.get("content-type") || "";
 
-    const data = (result as { data?: ResendReceivedEmailResponse; error?: unknown })
-      .data;
+  if (contentType.includes("application/json")) {
+    return (await request.json()) as InboundPayload;
+  }
 
-    const rawText = (data?.text ?? "").trim();
-    const rawHtml = data?.html ?? null;
+  if (
+    contentType.includes("application/x-www-form-urlencoded") ||
+    contentType.includes("multipart/form-data")
+  ) {
+    const formData = await request.formData();
 
-    const bodyText = trimQuotedReply(rawText);
-
-    console.log("Received email API body fetch:", {
-      emailId,
-      hasText: Boolean(bodyText),
-      hasHtml: Boolean(rawHtml),
-      textPreview: bodyText.slice(0, 120),
-    });
+    const to = formData.getAll("to");
+    const cc = formData.getAll("cc");
+    const from = formData.get("from");
+    const subject = formData.get("subject");
+    const text = formData.get("text");
+    const html = formData.get("html");
 
     return {
-      bodyText,
-      bodyHtml: rawHtml,
-    };
-  } catch (error) {
-    console.warn("Failed to fetch received email content from Resend API", {
-      emailId,
-      error,
-    });
-
-    return {
-      bodyText: "",
-      bodyHtml: null,
-    };
-  }
-}
-
-function extractFallbackInboundBody(event: ResendReceivedEvent) {
-  const directText = (event.data.text ?? event.data.body ?? "").trim();
-  const directHtml = event.data.html ?? null;
-
-  if (directText || directHtml) {
-    const cleanedText = trimQuotedReply(directText);
-
-    console.log("Inbound body extracted from webhook fallback fields:", {
-      hasText: Boolean(cleanedText),
-      hasHtml: Boolean(directHtml),
-      textPreview: cleanedText.slice(0, 120),
-    });
-
-    return {
-      bodyText: cleanedText,
-      bodyHtml: directHtml,
-    };
+      from: typeof from === "string" ? from : undefined,
+      to: to.map((value) => String(value)),
+      cc: cc.map((value) => String(value)),
+      subject: typeof subject === "string" ? subject : undefined,
+      text: typeof text === "string" ? text : undefined,
+      html: typeof html === "string" ? html : undefined,
+    } satisfies InboundPayload;
   }
 
-  console.warn("No body fields found in webhook fallback payload");
-  return {
-    bodyText: "",
-    bodyHtml: null,
-  };
-}
-
-function isInternalSenderEmail(email: string | null) {
-  if (!email) return false;
-
-  return (
-    email === "support@boostle.pro" ||
-    /^reply\+[a-z0-9_-]+@boostle\.pro$/i.test(email) ||
-    email.endsWith("@boostle.pro")
-  );
-}
-
-function extractCustomerIdentityFromBody(input: {
-  bodyText: string;
-  bodyHtml: string | null;
-}) {
-  const combined = [input.bodyText, input.bodyHtml ?? ""].filter(Boolean).join("\n");
-
-  const emailMatch = combined.match(
-    /email:\s*([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i,
-  );
-
-  const nameMatch = combined.match(/name:\s*(.+)/i);
-
-  return {
-    email: emailMatch?.[1] ? normalizeEmail(emailMatch[1]) : null,
-    name: nameMatch?.[1]?.trim() ?? null,
-  };
-}
-
-function isInternalSupportNotification(input: {
-  routingType: "new_ticket" | "existing_ticket" | "unknown";
-  senderEmail: string | null;
-  subject: string;
-  recipientEmail: string;
-}) {
-  const normalizedSubject = input.subject.trim().toLowerCase();
-  const normalizedRecipient = normalizeEmail(input.recipientEmail);
-
-  if (input.routingType !== "new_ticket") {
-    return false;
-  }
-
-  if (!isInternalSenderEmail(input.senderEmail)) {
-    return false;
-  }
-
-  if (normalizedRecipient !== "support@boostle.pro") {
-    return false;
-  }
-
-  return (
-    normalizedSubject.includes("new boostle support request") ||
-    /^\[ticket #\d+\]/i.test(input.subject.trim()) ||
-    normalizedSubject.startsWith("re: [ticket #") ||
-    normalizedSubject.startsWith("fwd: [ticket #")
-  );
+  throw new Error(`Unsupported content type: ${contentType || "unknown"}`);
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = await request.text();
+    const payload = await parseInboundPayload(request);
+    const supabase = getSupabaseAdmin();
 
-    console.log("Inbound email webhook headers:", {
-      svixId: request.headers.get("svix-id"),
-      svixTimestamp: request.headers.get("svix-timestamp"),
-      hasSvixSignature: Boolean(request.headers.get("svix-signature")),
+    const toAddresses = toAddressList(payload.to);
+    const ccAddresses = toAddressList(payload.cc);
+    const allRecipientAddresses = [...toAddresses, ...ccAddresses];
+
+    const senderEmail = extractEmailAddress(payload.from);
+    const senderName = extractDisplayName(payload.from);
+    const threadId = extractReplyThreadId(allRecipientAddresses);
+
+    const rawBody =
+      (typeof payload.text === "string" && payload.text.trim()) ||
+      (typeof payload.html === "string" && stripHtml(payload.html).trim()) ||
+      "";
+
+    const cleanedBody = cleanInboundBody(rawBody);
+
+    console.log("Inbound email received", {
+      subject: payload.subject || "",
+      senderEmail,
+      recipients: allRecipientAddresses
+        .map((entry) => extractEmailAddress(entry))
+        .filter(Boolean),
+      threadId,
+      hasBody: Boolean(cleanedBody),
     });
 
-    let verified: ResendReceivedEvent;
-
-    try {
-      verified = verifyWebhookWithSvix(payload, request);
-      console.log("Inbound email webhook signature verification: passed");
-    } catch (verificationError) {
-      console.warn(
-        "Inbound email webhook signature verification failed, using raw payload temporarily:",
-        verificationError,
-      );
-      verified = JSON.parse(payload) as ResendReceivedEvent;
-    }
-
-    console.log("Inbound email webhook parsed event:", {
-      type: verified.type,
-      emailId: verified.data?.email_id,
-      hasText: Boolean(verified.data?.text),
-      hasHtml: Boolean(verified.data?.html),
-      hasBody: Boolean(verified.data?.body),
-      attachmentsCount: verified.data?.attachments?.length ?? 0,
-    });
-
-    if (verified.type !== "email.received") {
-      return ok({ ok: true, ignored: true });
-    }
-
-    const recipientEmail = pickRecipient(toEmailArray(verified.data.to));
-    if (!recipientEmail) {
-      return badRequest("No supported recipient");
-    }
-
-    const routing = parseRouting(recipientEmail);
-    if (routing.type === "unknown") {
-      return badRequest("Invalid routing");
-    }
-
-    let senderEmail = extractEmailAddress(verified.data.from);
-    let senderName = extractDisplayName(verified.data.from);
-    const subject =
-      (verified.data.subject ?? "(No subject)").trim() || "(No subject)";
-    const providerMessageId =
-      (verified.data.message_id ?? verified.data.email_id).trim();
-
-    const apiContent = await fetchReceivedEmailContent(verified.data.email_id.trim());
-    const fallbackContent = extractFallbackInboundBody(verified);
-
-    const bodyText = apiContent.bodyText || fallbackContent.bodyText;
-    const bodyHtml = apiContent.bodyHtml || fallbackContent.bodyHtml;
-
-    if (
-      isInternalSupportNotification({
-        routingType: routing.type,
-        senderEmail,
-        subject,
-        recipientEmail,
-      })
-    ) {
-      console.log("Ignoring internal support notification email", {
-        from: verified.data.from,
-        recipientEmail,
-        subject,
-        providerMessageId,
+    if (!threadId) {
+      console.warn("Inbound email ignored: no reply thread id found", {
+        to: allRecipientAddresses,
       });
 
-      return ok({
-        ok: true,
-        ignored: true,
-        reason: "internal_support_notification",
-      });
-    }
-
-    if (isInternalSenderEmail(senderEmail)) {
-      const recovered = extractCustomerIdentityFromBody({
-        bodyText,
-        bodyHtml,
-      });
-
-      if (recovered.email) {
-        senderEmail = recovered.email;
-      }
-
-      if (recovered.name) {
-        senderName = recovered.name;
-      }
-
-      console.log("Recovered customer identity from inbound email body", {
-        originalFrom: verified.data.from,
-        recoveredEmail: senderEmail,
-        recoveredName: senderName,
-      });
+      return NextResponse.json({ ok: true });
     }
 
     if (!senderEmail) {
-      return badRequest("Missing sender email");
+      console.warn("Inbound email ignored: sender email missing or invalid");
+      return NextResponse.json({ ok: true });
     }
 
-    const attachmentsJson = (verified.data.attachments ?? []).map(
-      (attachment: ReceivedAttachmentMeta) => ({
-        id: attachment.id ?? null,
-        filename: attachment.filename ?? null,
-        contentType: attachment.content_type ?? null,
-        size: attachment.size ?? null,
-        downloadUrl: attachment.download_url ?? null,
-      }),
-    );
-
-    const supabase = getSupabaseAdmin();
-
-    const { data: existingMessage, error: existingMessageError } = await supabase
-      .from("ticket_messages")
-      .select("id")
-      .eq("provider_message_id", providerMessageId)
-      .maybeSingle();
-
-    if (existingMessageError) {
-      console.error("Failed checking duplicate inbound message", existingMessageError);
-      return NextResponse.json(
-        { error: "Failed checking duplicate inbound message." },
-        { status: 500 },
-      );
-    }
-
-    if (existingMessage) {
-      return ok({
-        ok: true,
-        duplicate: true,
-      });
-    }
-
-    if (routing.type === "new_ticket") {
-      let publicThreadId = generatePublicThreadId();
-
-      for (let i = 0; i < 5; i += 1) {
-        const { data: existingTicket, error: existingTicketError } = await supabase
-          .from("support_tickets")
-          .select("id")
-          .eq("public_thread_id", publicThreadId)
-          .maybeSingle();
-
-        if (existingTicketError) {
-          console.error("Failed checking public_thread_id uniqueness", existingTicketError);
-          return NextResponse.json(
-            { error: "Failed creating new ticket." },
-            { status: 500 },
-          );
-        }
-
-        if (!existingTicket) break;
-
-        publicThreadId = generatePublicThreadId();
-      }
-
-      const { data: createdTicket, error: createTicketError } = await supabase
-        .from("support_tickets")
-        .insert({
-          public_thread_id: publicThreadId,
-          name: senderName ?? senderEmail,
-          email: senderEmail,
-          subject,
-          message: bodyText,
-          status: "open",
-        })
-        .select("id, public_thread_id")
-        .single();
-
-      if (createTicketError || !createdTicket) {
-        console.error("Failed creating ticket", createTicketError);
-        return NextResponse.json(
-          { error: "Failed creating new ticket." },
-          { status: 500 },
-        );
-      }
-
-      const { error: createMessageError } = await supabase
-        .from("ticket_messages")
-        .insert({
-          ticket_id: createdTicket.id,
-          direction: "inbound",
-          sender_name: senderName,
-          sender_email: senderEmail,
-          body_text: bodyText,
-          body_html: bodyHtml,
-          provider_message_id: providerMessageId,
-          attachments_json: attachmentsJson,
-        });
-
-      if (createMessageError) {
-        console.error("Failed creating first ticket message", createMessageError);
-        return NextResponse.json(
-          { error: "Failed creating first ticket message." },
-          { status: 500 },
-        );
-      }
-
-      return ok({
-        ok: true,
-        action: "created_ticket",
-        ticketId: createdTicket.id,
-        publicThreadId: createdTicket.public_thread_id,
-      });
-    }
-
-    const { data: ticket, error: ticketLookupError } = await supabase
-      .from("support_tickets")
-      .select("id, public_thread_id, status, email")
-      .eq("public_thread_id", routing.publicThreadId)
-      .maybeSingle();
-
-    if (ticketLookupError) {
-      console.error("Failed finding existing ticket", ticketLookupError);
-      return NextResponse.json(
-        { error: "Failed finding existing ticket." },
-        { status: 500 },
-      );
-    }
-
-    if (!ticket) {
-      console.warn("Inbound reply received for unknown public_thread_id", {
-        publicThreadId: routing.publicThreadId,
-        recipientEmail,
+    if (!cleanedBody) {
+      console.warn("Inbound email ignored: empty cleaned body", {
+        threadId,
         senderEmail,
       });
 
-      return ok({
-        ok: true,
-        action: "ignored_unknown_thread",
-        publicThreadId: routing.publicThreadId,
-      });
+      return NextResponse.json({ ok: true });
     }
 
-    const typedTicket = ticket as TicketRow & { email?: string | null };
-
-    const { error: insertReplyError } = await supabase
-      .from("ticket_messages")
-      .insert({
-        ticket_id: typedTicket.id,
-        direction: "inbound",
-        sender_name: senderName,
-        sender_email: senderEmail,
-        body_text: bodyText,
-        body_html: bodyHtml,
-        provider_message_id: providerMessageId,
-        attachments_json: attachmentsJson,
-      });
-
-    if (insertReplyError) {
-      console.error("Failed inserting inbound reply", insertReplyError);
-      return NextResponse.json(
-        { error: "Failed appending inbound reply." },
-        { status: 500 },
-      );
-    }
-
-    const ticketUpdate: Record<string, unknown> = {
-      status: "open",
-      updated_at: new Date().toISOString(),
-    };
-
-    if (
-      senderEmail &&
-      !isInternalSenderEmail(senderEmail) &&
-      typedTicket.email !== senderEmail
-    ) {
-      ticketUpdate.email = senderEmail;
-    }
-
-    const { error: updateTicketError } = await supabase
+    const { data: ticket, error: ticketError } = await supabase
       .from("support_tickets")
-      .update(ticketUpdate)
-      .eq("id", typedTicket.id);
+      .select("id, status, email, public_thread_id")
+      .eq("public_thread_id", threadId)
+      .maybeSingle();
 
-    if (updateTicketError) {
-      console.error("Failed updating ticket after inbound reply", updateTicketError);
-      return NextResponse.json(
-        { error: "Failed updating ticket after inbound reply." },
-        { status: 500 },
-      );
+    if (ticketError) {
+      console.error("Failed finding support ticket for inbound email", {
+        threadId,
+        error: ticketError,
+      });
+
+      return NextResponse.json({ ok: true });
     }
 
-    return ok({
-      ok: true,
-      action: "appended_to_ticket",
-      ticketId: typedTicket.id,
-      publicThreadId: typedTicket.public_thread_id,
-      capturedBody: Boolean(bodyText),
+    if (!ticket) {
+      console.warn("Inbound email ignored: no matching support ticket found", {
+        threadId,
+        senderEmail,
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
+    const { error: insertError } = await supabase.from("ticket_messages").insert({
+      ticket_id: ticket.id,
+      direction: "inbound",
+      sender_name: senderName,
+      sender_email: senderEmail,
+      body_text: cleanedBody,
+    });
+
+    if (insertError) {
+      console.error("Failed inserting inbound ticket message", {
+        ticketId: ticket.id,
+        error: insertError,
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
+    const { error: updateError } = await supabase
+      .from("support_tickets")
+      .update({ status: "open" })
+      .eq("id", ticket.id);
+
+    if (updateError) {
+      console.error("Failed updating support ticket status after inbound email", {
+        ticketId: ticket.id,
+        error: updateError,
+      });
+    }
+
+    console.log("Inbound email linked to support ticket", {
+      ticketId: ticket.id,
+      threadId,
       senderEmail,
     });
-  } catch (err) {
-    console.error("Inbound email webhook failed", err);
-    return NextResponse.json({ error: "Webhook failed" }, { status: 500 });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Inbound email webhook error", error);
+    return NextResponse.json({ ok: true });
   }
 }
