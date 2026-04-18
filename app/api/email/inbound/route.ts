@@ -137,6 +137,31 @@ function extractDisplayName(input: unknown): string | null {
   return name || null;
 }
 
+function deriveNameFromEmail(email: string | null): string | null {
+  if (!email) return null;
+
+  const localPart = email.split("@")[0];
+
+  if (!localPart) {
+    return null;
+  }
+
+  const cleaned = localPart
+    .replace(/^(mr|mrs|ms|dr)\.?/i, "")
+    .replace(/[._-]+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  return cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function toAddressList(input: unknown): InboundAddress[] {
   if (!input) return [];
   return Array.isArray(input) ? input : [input as InboundAddress];
@@ -379,10 +404,7 @@ async function parseInboundPayload(request: NextRequest): Promise<{
   throw new Error(`Unsupported content type: ${contentType || "unknown"}`);
 }
 
-function getObjectField(
-  value: unknown,
-  key: string,
-): unknown {
+function getObjectField(value: unknown, key: string): unknown {
   if (!value || typeof value !== "object") {
     return undefined;
   }
@@ -390,10 +412,7 @@ function getObjectField(
   return (value as Record<string, unknown>)[key];
 }
 
-function getStringField(
-  value: unknown,
-  key: string,
-): string {
+function getStringField(value: unknown, key: string): string {
   const fieldValue = getObjectField(value, key);
   return typeof fieldValue === "string" ? fieldValue : "";
 }
@@ -646,10 +665,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    const fallbackName =
+      senderName ||
+      extractDisplayName(nestedData.from) ||
+      deriveNameFromEmail(senderEmailFromRaw);
+
     const { error: insertError } = await supabase.from("ticket_messages").insert({
       ticket_id: ticket.id,
       direction: "inbound",
-      sender_name: senderName || extractDisplayName(nestedData.from),
+      sender_name: fallbackName,
       sender_email: senderEmailFromRaw,
       body_text: cleanedBody,
     });
@@ -679,6 +703,7 @@ export async function POST(request: NextRequest) {
       ticketId: ticket.id,
       threadId,
       senderEmail: senderEmailFromRaw,
+      senderName: fallbackName,
     });
 
     return NextResponse.json({ ok: true });
