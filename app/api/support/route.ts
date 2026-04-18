@@ -229,8 +229,13 @@ async function createSupportTicket(input: {
   email: string;
   subject: string;
   message: string;
+  storeUrl: string;
+  appName: string;
+  category: string;
 }) {
-  const { supabase, name, email, subject, message } = input;
+  const { supabase, name, email, subject, message, storeUrl, appName, category } =
+    input;
+
   const publicThreadId = await ensureUniquePublicThreadId({
     supabase,
     tableName: "support_tickets",
@@ -241,19 +246,49 @@ async function createSupportTicket(input: {
     email,
     subject,
     message,
+    store_url: storeUrl,
+    app_name: appName,
+    category,
     status: "open",
     priority: "normal",
     source: "website",
     public_thread_id: publicThreadId,
   };
 
-  const { data, error } = await supabase
-    .from("support_tickets")
-    .insert(values)
-    .select("id, public_thread_id")
-    .single<CreatedTicketRow>();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const { data, error } = await supabase
+      .from("support_tickets")
+      .insert(values)
+      .select("id, public_thread_id")
+      .single<CreatedTicketRow>();
 
-  return { data, error: error as SupabaseLikeError | null };
+    if (!error && data) {
+      return { data, error: null as SupabaseLikeError | null };
+    }
+
+    const missingColumn = getMissingColumnFromError(error);
+
+    if (missingColumn && missingColumn in values) {
+      console.warn(
+        `support_tickets insert fallback: removing missing column "${missingColumn}" and retrying`,
+      );
+      delete values[missingColumn];
+      continue;
+    }
+
+    return {
+      data: null,
+      error: error as SupabaseLikeError | null,
+    };
+  }
+
+  return {
+    data: null,
+    error: {
+      message:
+        "Too many schema fallback attempts while creating ticket in support_tickets.",
+    } as SupabaseLikeError,
+  };
 }
 
 async function createLegacyTicket(input: {
@@ -677,6 +712,9 @@ export async function POST(request: NextRequest) {
       email,
       subject,
       message: customerMessage,
+      storeUrl,
+      appName,
+      category,
     });
 
     if (supportTicketResult.data) {

@@ -11,12 +11,17 @@ type TicketStatus = "open" | "in_progress" | "closed";
 type Ticket = {
   id: string;
   ticket_number?: number | null;
-  name: string;
-  email: string;
+  name: string | null;
+  email: string | null;
   subject: string;
   message: string;
   status: TicketStatus;
   created_at: string;
+  store_url?: string | null;
+  app_name?: string | null;
+  category?: string | null;
+  customer_name?: string | null;
+  customer_email?: string | null;
 };
 
 type TicketMessage = {
@@ -256,24 +261,70 @@ function parseOriginalRequestDetails(message: string) {
   };
 }
 
+function getPrimaryName(ticket: Ticket) {
+  return ticket.name?.trim() || ticket.customer_name?.trim() || "Customer";
+}
+
+function getPrimaryEmail(ticket: Ticket) {
+  return ticket.email?.trim() || ticket.customer_email?.trim() || "";
+}
+
 function getVisibleInitialDetails(input: {
   parsed: ReturnType<typeof parseOriginalRequestDetails>;
   ticket: Ticket;
 }) {
-  const details = input.parsed.details.filter((detail) => {
-    const normalized = detail.label.trim().toLowerCase();
-    return !["subject", "message"].includes(normalized);
-  });
-
-  return [
+  const details: Array<{ label: string; value: string }> = [
     {
       label: "Ticket",
       value: input.ticket.ticket_number
         ? `Ticket #${input.ticket.ticket_number}`
         : `Ticket #${input.ticket.id.slice(0, 8)}`,
     },
-    ...details,
   ];
+
+  const primaryName = getPrimaryName(input.ticket);
+  const primaryEmail = getPrimaryEmail(input.ticket);
+  const storeUrl = input.ticket.store_url?.trim() || "";
+  const appName = input.ticket.app_name?.trim() || "";
+  const category = input.ticket.category?.trim() || "";
+
+  if (primaryName) {
+    details.push({ label: "Name", value: primaryName });
+  }
+
+  if (primaryEmail) {
+    details.push({ label: "Email", value: primaryEmail });
+  }
+
+  if (storeUrl) {
+    details.push({ label: "Store URL", value: storeUrl });
+  }
+
+  if (appName) {
+    details.push({ label: "App", value: appName });
+  }
+
+  if (category) {
+    details.push({ label: "Category", value: category });
+  }
+
+  const fallbackDetails = input.parsed.details.filter((detail) => {
+    const normalized = detail.label.trim().toLowerCase();
+
+    if (["subject", "message", "ticket"].includes(normalized)) {
+      return false;
+    }
+
+    if (normalized === "name" && primaryName) return false;
+    if (normalized === "email" && primaryEmail) return false;
+    if (normalized === "store url" && storeUrl) return false;
+    if (normalized === "app" && appName) return false;
+    if (normalized === "category" && category) return false;
+
+    return true;
+  });
+
+  return [...details, ...fallbackDetails];
 }
 
 export default async function AdminTicketDetailPage({
@@ -297,10 +348,15 @@ export default async function AdminTicketDetailPage({
         ticket_number,
         name,
         email,
+        customer_name,
+        customer_email,
         subject,
         message,
         status,
-        created_at
+        created_at,
+        store_url,
+        app_name,
+        category
       `,
     )
     .eq("id", id)
@@ -329,6 +385,8 @@ export default async function AdminTicketDetailPage({
   const messages = (messagesResult.data ?? []) as TicketMessage[];
 
   const typedTicket = ticket as Ticket;
+  const customerName = getPrimaryName(typedTicket);
+  const customerEmail = getPrimaryEmail(typedTicket);
   const returnTo = `/dashboard/tickets/${typedTicket.id}`;
   const statusStyle = getStatusStyle(typedTicket.status);
   const originalMessageBody = cleanQuotedReply(typedTicket.message);
@@ -348,8 +406,8 @@ export default async function AdminTicketDetailPage({
             type: "customer_reply" as const,
             created_at: typedTicket.created_at,
             body: initialConversationBody,
-            sender_name: typedTicket.name,
-            sender_email: typedTicket.email,
+            sender_name: customerName,
+            sender_email: customerEmail,
             isOriginalMessage: true,
           },
         ]
@@ -494,7 +552,7 @@ export default async function AdminTicketDetailPage({
                   fontSize: 13,
                 }}
               >
-                {typedTicket.name} · {typedTicket.email} · Submitted{" "}
+                {customerName} · {customerEmail} · Submitted{" "}
                 {formatDateTime(typedTicket.created_at)}
               </p>
             </div>
@@ -637,7 +695,7 @@ export default async function AdminTicketDetailPage({
                         border: "1px solid #bfdbfe",
                       }}
                     >
-                      {getInitials(typedTicket.name, typedTicket.email)}
+                      {getInitials(customerName, customerEmail)}
                     </div>
 
                     <div style={{ minWidth: 0 }}>
@@ -682,7 +740,7 @@ export default async function AdminTicketDetailPage({
                           fontSize: 13,
                         }}
                       >
-                        Submitted by {typedTicket.name} · {typedTicket.email}
+                        Submitted by {customerName} · {customerEmail}
                       </p>
                     </div>
                   </div>
@@ -1174,7 +1232,7 @@ export default async function AdminTicketDetailPage({
                           fontSize: 14,
                         }}
                       >
-                        {typedTicket.name}
+                        {customerName}
                       </p>
 
                       <p
@@ -1185,7 +1243,7 @@ export default async function AdminTicketDetailPage({
                           wordBreak: "break-word",
                         }}
                       >
-                        {typedTicket.email}
+                        {customerEmail}
                       </p>
                     </div>
 
