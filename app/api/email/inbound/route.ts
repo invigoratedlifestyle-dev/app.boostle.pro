@@ -382,7 +382,22 @@ export async function POST(request: NextRequest) {
     const senderName = extractDisplayName(payload.from);
 
     const payloadRecord = payload as Record<string, unknown>;
-    const recipientCandidates = collectRecipientCandidates(payloadRecord);
+    const nestedData =
+      typeof payloadRecord.data === "object" && payloadRecord.data !== null
+        ? (payloadRecord.data as Record<string, unknown>)
+        : {};
+
+    const recipientCandidates = collectRecipientCandidates({
+      ...payloadRecord,
+      ...(!("to" in payloadRecord) && "to" in nestedData ? { to: nestedData.to } : {}),
+      ...(!("cc" in payloadRecord) && "cc" in nestedData ? { cc: nestedData.cc } : {}),
+      envelope:
+        payloadRecord.envelope ||
+        (typeof nestedData.envelope === "object" ? nestedData.envelope : undefined),
+      headers:
+        payloadRecord.headers ||
+        (typeof nestedData.headers === "object" ? nestedData.headers : undefined),
+    });
 
     const addressBasedThreadId = extractReplyThreadIdFromCandidates(
       allRecipientAddresses
@@ -406,16 +421,6 @@ export async function POST(request: NextRequest) {
 
     const rawBodyPreview = rawBody.slice(0, 500);
 
-    const rawBodyTextMatch = rawBody.match(/(?:^|[&"\s])text=([^&]+)/i);
-    const decodedRawText = rawBodyTextMatch?.[1]
-      ? decodeURIComponent(rawBodyTextMatch[1].replace(/\+/g, " "))
-      : "";
-
-    const rawBodyHtmlMatch = rawBody.match(/(?:^|[&"\s])html=([^&]+)/i);
-    const decodedRawHtml = rawBodyHtmlMatch?.[1]
-      ? decodeURIComponent(rawBodyHtmlMatch[1].replace(/\+/g, " "))
-      : "";
-
     const rawBodyFromMatch = rawBody.match(/(?:^|[&"\s])from=([^&]+)/i);
     const rawBodyFrom = rawBodyFromMatch?.[1]
       ? decodeURIComponent(rawBodyFromMatch[1].replace(/\+/g, " "))
@@ -424,12 +429,8 @@ export async function POST(request: NextRequest) {
     const senderEmailFromRaw =
       senderEmail ||
       extractEmailAddress(rawBodyFrom) ||
+      extractEmailAddress(nestedData.from) ||
       extractFirstEmailFromRawBody(rawBody);
-
-    const rawBodyContent =
-      decodedRawText.trim() ||
-      (decodedRawHtml.trim() ? stripHtml(decodedRawHtml).trim() : "") ||
-      "";
 
     const rawBodyRecipients = Array.from(
       new Set(
@@ -441,19 +442,19 @@ export async function POST(request: NextRequest) {
       ),
     );
 
-    const rawBodyFallbackBody = rawBodyContent || rawBody;
-
-    const rawBodyBasedBody = cleanInboundBody(rawBodyFallbackBody);
-
     const payloadBody =
       (typeof payload.text === "string" && payload.text.trim()) ||
       (typeof payload.html === "string" && stripHtml(payload.html).trim()) ||
+      (typeof nestedData.text === "string" && nestedData.text.trim()) ||
+      (typeof nestedData.html === "string" && stripHtml(nestedData.html).trim()) ||
       "";
 
-    const cleanedBody = cleanInboundBody(payloadBody || rawBodyBasedBody);
+    const cleanedBody = cleanInboundBody(payloadBody);
 
     console.log("Inbound email received", {
-      subject: payload.subject || "",
+      subject:
+        payload.subject ||
+        (typeof nestedData.subject === "string" ? nestedData.subject : ""),
       senderEmail,
       senderEmailFromRaw,
       rawBodyFrom,
@@ -463,6 +464,7 @@ export async function POST(request: NextRequest) {
       recipientCandidates,
       rawBodyRecipients,
       payloadKeys: Object.keys(payloadRecord),
+      nestedDataKeys: Object.keys(nestedData),
       addressBasedThreadId,
       candidateBasedThreadId,
       rawBodyThreadId,
@@ -485,6 +487,7 @@ export async function POST(request: NextRequest) {
       console.warn("Inbound email ignored: sender email missing or invalid", {
         rawBodyFrom,
         payloadFrom: payload.from,
+        nestedDataFrom: nestedData.from,
         rawBodyPreview,
       });
 
@@ -495,6 +498,10 @@ export async function POST(request: NextRequest) {
       console.warn("Inbound email ignored: empty cleaned body", {
         threadId,
         senderEmail: senderEmailFromRaw,
+        payloadHasText: typeof payload.text === "string",
+        payloadHasHtml: typeof payload.html === "string",
+        nestedDataHasText: typeof nestedData.text === "string",
+        nestedDataHasHtml: typeof nestedData.html === "string",
       });
 
       return NextResponse.json({ ok: true });
@@ -527,7 +534,7 @@ export async function POST(request: NextRequest) {
     const { error: insertError } = await supabase.from("ticket_messages").insert({
       ticket_id: ticket.id,
       direction: "inbound",
-      sender_name: senderName,
+      sender_name: senderName || extractDisplayName(nestedData.from),
       sender_email: senderEmailFromRaw,
       body_text: cleanedBody,
     });
