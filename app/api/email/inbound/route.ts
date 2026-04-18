@@ -19,6 +19,15 @@ type InboundPayload = {
   subject?: string;
   text?: string;
   html?: string;
+  envelope?: {
+    to?: InboundAddress | InboundAddress[];
+    cc?: InboundAddress | InboundAddress[];
+  };
+  headers?: {
+    to?: InboundAddress | InboundAddress[];
+    cc?: InboundAddress | InboundAddress[];
+  };
+  [key: string]: unknown;
 };
 
 function getEnv(name: string): string {
@@ -29,11 +38,6 @@ function getEnv(name: string): string {
   }
 
   return value;
-}
-
-function getOptionalEnv(name: string): string | null {
-  const value = process.env[name]?.trim();
-  return value || null;
 }
 
 function getSupabaseAdmin() {
@@ -85,6 +89,15 @@ function extractEmailAddress(input: unknown): string | null {
     return isValidEmail(email) ? normalizeEmail(email) : null;
   }
 
+  const fallbackMatch = trimmed.match(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/,
+  );
+
+  if (fallbackMatch?.[1]) {
+    const email = fallbackMatch[1].trim();
+    return isValidEmail(email) ? normalizeEmail(email) : null;
+  }
+
   return isValidEmail(trimmed) ? normalizeEmail(trimmed) : null;
 }
 
@@ -119,22 +132,6 @@ function toAddressList(input: unknown): InboundAddress[] {
   return Array.isArray(input) ? input : [input as InboundAddress];
 }
 
-function extractReplyThreadId(addresses: InboundAddress[]) {
-  for (const entry of addresses) {
-    const email = extractEmailAddress(entry);
-
-    if (!email) continue;
-
-    const match = email.match(/^reply\+([^@]+)@/i);
-
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  return null;
-}
-
 function stripHtml(html: string) {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -156,6 +153,7 @@ function cleanInboundBody(input: string) {
   const normalized = input.replace(/\r\n/g, "\n").trim();
 
   if (!normalized) return "";
+
   const lines = normalized.split("\n");
   const cleanLines: string[] = [];
 
@@ -196,6 +194,83 @@ function cleanInboundBody(input: string) {
     .trim();
 }
 
+function collectRecipientCandidates(payload: Record<string, unknown>): string[] {
+  const values: string[] = [];
+
+  const pushValue = (value: unknown) => {
+    if (!value) return;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        pushValue(item);
+      }
+      return;
+    }
+
+    if (typeof value === "string") {
+      values.push(value);
+      return;
+    }
+
+    if (typeof value === "object" && value !== null) {
+      const record = value as Record<string, unknown>;
+
+      if (typeof record.email === "string") {
+        values.push(record.email);
+      }
+
+      if (typeof record.address === "string") {
+        values.push(record.address);
+      }
+
+      if (typeof record.to === "string") {
+        values.push(record.to);
+      }
+
+      if (typeof record.cc === "string") {
+        values.push(record.cc);
+      }
+
+      if (Array.isArray(record.to)) {
+        pushValue(record.to);
+      }
+
+      if (Array.isArray(record.cc)) {
+        pushValue(record.cc);
+      }
+    }
+  };
+
+  pushValue(payload.to);
+  pushValue(payload.cc);
+
+  if (typeof payload.envelope === "object" && payload.envelope !== null) {
+    const envelope = payload.envelope as Record<string, unknown>;
+    pushValue(envelope.to);
+    pushValue(envelope.cc);
+  }
+
+  if (typeof payload.headers === "object" && payload.headers !== null) {
+    const headers = payload.headers as Record<string, unknown>;
+    pushValue(headers.to);
+    pushValue(headers.cc);
+  }
+
+  return values;
+}
+
+function extractReplyThreadIdFromCandidates(candidates: string[]) {
+  for (const candidate of candidates) {
+    const match = String(candidate).match(/reply\+([^@>\s]+)@/i);
+
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
 async function parseInboundPayload(request: NextRequest) {
   const contentType = request.headers.get("content-type") || "";
 
@@ -215,6 +290,27 @@ async function parseInboundPayload(request: NextRequest) {
     const subject = formData.get("subject");
     const text = formData.get("text");
     const html = formData.get("html");
+    const envelope = formData.get("envelope");
+    const headers = formData.get("headers");
+
+    let parsedEnvelope: Record<string, unknown> | undefined;
+    let parsedHeaders: Record<string, unknown> | undefined;
+
+    if (typeof envelope === "string" && envelope.trim()) {
+      try {
+        parsedEnvelope = JSON.parse(envelope) as Record<string, unknown>;
+      } catch {
+        parsedEnvelope = { raw: envelope };
+      }
+    }
+
+    if (typeof headers === "string" && headers.trim()) {
+      try {
+        parsedHeaders = JSON.parse(headers) as Record<string, unknown>;
+      } catch {
+        parsedHeaders = { raw: headers };
+      }
+    }
 
     return {
       from: typeof from === "string" ? from : undefined,
@@ -223,6 +319,8 @@ async function parseInboundPayload(request: NextRequest) {
       subject: typeof subject === "string" ? subject : undefined,
       text: typeof text === "string" ? text : undefined,
       html: typeof html === "string" ? html : undefined,
+      envelope: parsedEnvelope,
+      headers: parsedHeaders,
     } satisfies InboundPayload;
   }
 
@@ -240,7 +338,22 @@ export async function POST(request: NextRequest) {
 
     const senderEmail = extractEmailAddress(payload.from);
     const senderName = extractDisplayName(payload.from);
-    const threadId = extractReplyThreadId(allRecipientAddresses);
+
+    const payloadRecord = payload as Record<string, unknown>;
+    const recipientCandidates = collectRecipientCandidates(payloadRecord);
+    const addressBasedThreadId = extractReplyThreadIdFromCandidates(
+      allRecipientAddresses
+        .map((entry) => {
+          if (typeof entry === "string") {
+            return entry;
+          }
+
+          return entry.email || entry.address || "";
+        })
+        .filter(Boolean),
+    );
+    const threadId =
+      addressBasedThreadId || extractReplyThreadIdFromCandidates(recipientCandidates);
 
     const rawBody =
       (typeof payload.text === "string" && payload.text.trim()) ||
@@ -255,6 +368,8 @@ export async function POST(request: NextRequest) {
       recipients: allRecipientAddresses
         .map((entry) => extractEmailAddress(entry))
         .filter(Boolean),
+      recipientCandidates,
+      payloadKeys: Object.keys(payloadRecord),
       threadId,
       hasBody: Boolean(cleanedBody),
     });
@@ -262,6 +377,7 @@ export async function POST(request: NextRequest) {
     if (!threadId) {
       console.warn("Inbound email ignored: no reply thread id found", {
         to: allRecipientAddresses,
+        recipientCandidates,
       });
 
       return NextResponse.json({ ok: true });
